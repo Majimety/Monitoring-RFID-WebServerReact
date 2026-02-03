@@ -3,7 +3,7 @@ import io from 'socket.io-client';
 import './AdminDashboard.css';
 
 // ==================== Sidebar Component ====================
-const Sidebar = ({ currentPage, onPageChange }) => {
+const Sidebar = ({ currentPage, onPageChange, onLogout, user }) => {
   const menuItems = [
     { id: 'dashboard', icon: 'fa-house', title: 'Dashboard' },
     { id: 'users', icon: 'fa-id-card', title: 'RFID Users' },
@@ -19,7 +19,6 @@ const Sidebar = ({ currentPage, onPageChange }) => {
           src="/logo/enkku_logo.png"
           alt="Logo"
           onError={(e) => {
-            // Fallback to SVG if PNG not found
             e.target.src = "/logo/enkku_logo.svg";
           }}
         />
@@ -40,10 +39,36 @@ const Sidebar = ({ currentPage, onPageChange }) => {
             <i className={`fa-solid ${item.icon}`}></i>
           </a>
         ))}
+
+        {/* Logout Button */}
+        <a
+          href="#"
+          className="menu-item logout-item"
+          title="Logout"
+          onClick={(e) => {
+            e.preventDefault();
+            if (window.confirm('Are you sure you want to logout?')) {
+              onLogout();
+            }
+          }}
+        >
+          <i className="fa-solid fa-right-from-bracket"></i>
+        </a>
       </div>
+
+      {/* User Info at Bottom */}
+      {user && (
+        <div className="sidebar-user">
+          <div className="user-avatar">
+            {user.first_name?.[0]}{user.last_name?.[0]}
+          </div>
+          <div className="user-name">{user.first_name}</div>
+        </div>
+      )}
     </aside>
   );
 };
+
 
 // ==================== Right Panel Component ====================
 const RightPanel = ({ uuid, onFormSubmit, editingUser, onCancelEdit }) => {
@@ -251,7 +276,7 @@ const RightPanel = ({ uuid, onFormSubmit, editingUser, onCancelEdit }) => {
           onChange={handleInputChange}
           required
         />
-        
+
         {/* Custom Role Selector */}
         <div className="role-selector">
           <label>Role:</label>
@@ -448,12 +473,12 @@ const UsersTable = ({ onRefresh, onEditUser }) => {
     try {
       const response = await fetch(`/api/user/${userId}`);
       const user = await response.json();
-      
+
       if (user.error) {
         alert('Failed to load user data');
         return;
       }
-      
+
       if (onEditUser) {
         onEditUser(user);
       }
@@ -663,7 +688,7 @@ const SystemSettings = () => {
 };
 
 // ==================== Main Admin Dashboard Component ====================
-const AdminDashboard = () => {
+const AdminDashboard = ({ user, onLogout }) => {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [uuid, setUuid] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -694,7 +719,7 @@ const AdminDashboard = () => {
 
   const handleEditUser = (user) => {
     setEditingUser(user);
-    setCurrentPage('users'); // Ensure we're on the users page
+    setCurrentPage('users');
   };
 
   const handleCancelEdit = () => {
@@ -720,16 +745,27 @@ const AdminDashboard = () => {
 
   return (
     <div className="layout">
-      <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
+      <Sidebar
+        currentPage={currentPage}
+        onPageChange={setCurrentPage}
+        onLogout={onLogout}
+        user={user}
+      />
 
       <main className="main">
         <div id="main-content">
+          {/* Welcome Header */}
+          <div className="welcome-header">
+            <h1>Welcome, {user?.first_name} {user?.last_name}</h1>
+            <p className="user-role">{user?.role || 'Admin'}</p>
+          </div>
+
           {renderContent()}
         </div>
       </main>
 
-      <RightPanel 
-        uuid={uuid} 
+      <RightPanel
+        uuid={uuid}
         onFormSubmit={handleFormSubmit}
         editingUser={editingUser}
         onCancelEdit={handleCancelEdit}

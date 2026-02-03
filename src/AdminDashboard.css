@@ -680,3 +680,81 @@ tbody tr:hover {
 .role-btn.active span {
   font-weight: 600;
 }
+/* ==================== Additional Auth Styles for AdminDashboard ==================== */
+
+/* Logout button styling */
+.logout-item {
+  margin-top: auto;
+  background: #ffebee !important;
+  color: #d32f2f !important;
+}
+
+.logout-item:hover {
+  background: #d32f2f !important;
+  color: #fff !important;
+}
+
+/* Sidebar user info */
+.sidebar-user {
+  padding: 16px;
+  border-top: 1px solid #eee;
+  text-align: center;
+  margin-top: auto;
+}
+
+.user-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #d28b8b;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 18px;
+  margin: 0 auto 8px;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Welcome header */
+.welcome-header {
+  margin-bottom: 20px;
+  padding: 20px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.welcome-header h1 {
+  font-size: 24px;
+  font-weight: 700;
+  color: #221d42;
+  margin-bottom: 4px;
+}
+
+.user-role {
+  font-size: 14px;
+  color: #666;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Responsive adjustments */
+@media screen and (max-width: 768px) {
+  .sidebar-user {
+    display: none;
+  }
+  
+  .logout-item {
+    margin-top: 0;
+  }
+}

@@ -16,13 +16,21 @@ import os
 import csv
 from uuid import uuid4
 
+from auth import auth_bp, init_auth_db
+
 # =====================
 # App Configuration
 # =====================
 
 app = Flask(__name__)
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+
+app.config["SECRET_KEY"] = "your-secret-key-change-this-in-production"
+
+# Register auth routes
+app.register_blueprint(auth_bp)
+
 
 BASE_DIR = os.path.dirname(__file__)
 DB_PATH = os.path.abspath(os.path.join(BASE_DIR, "database.db"))
@@ -567,4 +575,12 @@ def table_route():
 
 if __name__ == "__main__":
     init_db()
-    socketio.run(app, debug=True, host="0.0.0.0", port=5000)
+    init_auth_db()
+
+    socketio.run(
+        app,
+        debug=True,
+        use_reloader=False,
+        host="0.0.0.0",
+        port=5000,
+    )
