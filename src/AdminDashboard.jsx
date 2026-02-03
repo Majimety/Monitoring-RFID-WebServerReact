@@ -46,20 +46,48 @@ const Sidebar = ({ currentPage, onPageChange }) => {
 };
 
 // ==================== Right Panel Component ====================
-const RightPanel = ({ uuid, onFormSubmit }) => {
+const RightPanel = ({ uuid, onFormSubmit, editingUser, onCancelEdit }) => {
   const [formData, setFormData] = useState({
     uuid: '',
     user_id: '',
     first_name: '',
     last_name: '',
-    email: ''
+    email: '',
+    role: 'student'
   });
   const [searchUserId, setSearchUserId] = useState('');
   const [message, setMessage] = useState({ text: '', type: '' });
 
+  // Update form when uuid changes (for adding new user)
   useEffect(() => {
-    setFormData(prev => ({ ...prev, uuid: uuid || '' }));
-  }, [uuid]);
+    if (!editingUser) {
+      setFormData(prev => ({ ...prev, uuid: uuid || '' }));
+    }
+  }, [uuid, editingUser]);
+
+  // Update form when editingUser changes
+  useEffect(() => {
+    if (editingUser) {
+      setFormData({
+        uuid: editingUser.uuid || '',
+        user_id: editingUser.user_id || '',
+        first_name: editingUser.first_name || '',
+        last_name: editingUser.last_name || '',
+        email: editingUser.email || '',
+        role: editingUser.role || 'student'
+      });
+    } else {
+      // Reset form when not editing
+      setFormData({
+        uuid: uuid || '',
+        user_id: '',
+        first_name: '',
+        last_name: '',
+        email: '',
+        role: 'student'
+      });
+    }
+  }, [editingUser, uuid]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -71,32 +99,60 @@ const RightPanel = ({ uuid, onFormSubmit }) => {
     setMessage({ text: '', type: '' });
 
     try {
-      const response = await fetch('/api/add_user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-
-      const data = await response.json();
-      setMessage({
-        text: data.message,
-        type: data.success ? 'success' : 'error'
-      });
-
-      if (data.success) {
-        setFormData({
-          uuid: '',
-          user_id: '',
-          first_name: '',
-          last_name: '',
-          email: ''
+      if (editingUser) {
+        // Update existing user
+        const response = await fetch(`/api/update_user/${editingUser.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
         });
-        setTimeout(() => {
-          if (onFormSubmit) onFormSubmit();
-        }, 1000);
+
+        const data = await response.json();
+        setMessage({
+          text: data.message,
+          type: data.success ? 'success' : 'error'
+        });
+
+        if (data.success) {
+          // Auto-hide success message after 2 seconds
+          setTimeout(() => {
+            setMessage({ text: '', type: '' });
+            if (onCancelEdit) onCancelEdit();
+            if (onFormSubmit) onFormSubmit();
+          }, 2000);
+        }
+      } else {
+        // Add new user
+        const response = await fetch('/api/add_user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
+        });
+
+        const data = await response.json();
+        setMessage({
+          text: data.message,
+          type: data.success ? 'success' : 'error'
+        });
+
+        if (data.success) {
+          setFormData({
+            uuid: '',
+            user_id: '',
+            first_name: '',
+            last_name: '',
+            email: '',
+            role: 'student'
+          });
+          // Auto-hide success message after 2 seconds
+          setTimeout(() => {
+            setMessage({ text: '', type: '' });
+            if (onFormSubmit) onFormSubmit();
+          }, 2000);
+        }
       }
     } catch (error) {
-      setMessage({ text: 'Error adding user', type: 'error' });
+      setMessage({ text: 'Error saving user', type: 'error' });
     }
   };
 
@@ -116,7 +172,8 @@ const RightPanel = ({ uuid, onFormSubmit }) => {
           user_id: user.user_id || '',
           first_name: user.first_name || '',
           last_name: user.last_name || '',
-          email: user.email || ''
+          email: user.email || '',
+          role: user.role || 'student'
         });
       } else {
         alert('ไม่พบ User ID นี้');
@@ -133,6 +190,11 @@ const RightPanel = ({ uuid, onFormSubmit }) => {
     }
   };
 
+  const handleCancel = () => {
+    setMessage({ text: '', type: '' });
+    if (onCancelEdit) onCancelEdit();
+  };
+
   return (
     <aside className="right-panel">
       <div className="search-box">
@@ -146,7 +208,7 @@ const RightPanel = ({ uuid, onFormSubmit }) => {
         />
       </div>
 
-      <h3>USER ID:</h3>
+      <h3>{editingUser ? 'Edit User' : 'Add User'}</h3>
 
       <form onSubmit={handleSubmit}>
         <input
@@ -189,7 +251,38 @@ const RightPanel = ({ uuid, onFormSubmit }) => {
           onChange={handleInputChange}
           required
         />
-        <button type="submit">Add RFID</button>
+        
+        {/* Custom Role Selector */}
+        <div className="role-selector">
+          <label>Role:</label>
+          <div className="role-options">
+            <button
+              type="button"
+              className={`role-btn ${formData.role === 'student' ? 'active' : ''}`}
+              onClick={() => setFormData(prev => ({ ...prev, role: 'student' }))}
+            >
+              <i className="fa-solid fa-user-graduate"></i>
+              <span>Student</span>
+            </button>
+            <button
+              type="button"
+              className={`role-btn ${formData.role === 'admin' ? 'active' : ''}`}
+              onClick={() => setFormData(prev => ({ ...prev, role: 'admin' }))}
+            >
+              <i className="fa-solid fa-user-shield"></i>
+              <span>Admin</span>
+            </button>
+          </div>
+        </div>
+
+        {editingUser ? (
+          <>
+            <button type="submit">Update User</button>
+            <button type="button" onClick={handleCancel}>Cancel</button>
+          </>
+        ) : (
+          <button type="submit">Add RFID</button>
+        )}
       </form>
 
       {message.text && (
@@ -285,11 +378,17 @@ const DashboardContent = () => {
                   <td>{booking.time}</td>
                   <td>{booking.detail}</td>
                   <td>
-                    <span className="btn-accept" onClick={() => handleAccept(index)}>
+                    <span
+                      className="btn-accept"
+                      onClick={() => handleAccept(index)}
+                    >
                       Accept
-                    </span>{' '}
-                    |{' '}
-                    <span className="btn-decline" onClick={() => handleDecline(index)}>
+                    </span>
+                    {' | '}
+                    <span
+                      className="btn-decline"
+                      onClick={() => handleDecline(index)}
+                    >
                       Decline
                     </span>
                   </td>
@@ -304,25 +403,25 @@ const DashboardContent = () => {
 };
 
 // ==================== Users Table Component ====================
-const UsersTable = ({ onRefresh }) => {
+const UsersTable = ({ onRefresh, onEditUser }) => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    loadUsers();
-  }, [onRefresh]);
 
   const loadUsers = async () => {
     try {
       const response = await fetch('/api/users');
       const data = await response.json();
       setUsers(data.users || []);
-      setLoading(false);
     } catch (error) {
       console.error('Error loading users:', error);
+    } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadUsers();
+  }, [onRefresh]);
 
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this user?')) {
@@ -342,6 +441,24 @@ const UsersTable = ({ onRefresh }) => {
       }
     } catch (error) {
       alert('Error deleting user');
+    }
+  };
+
+  const handleEdit = async (userId) => {
+    try {
+      const response = await fetch(`/api/user/${userId}`);
+      const user = await response.json();
+      
+      if (user.error) {
+        alert('Failed to load user data');
+        return;
+      }
+      
+      if (onEditUser) {
+        onEditUser(user);
+      }
+    } catch (error) {
+      alert('Error loading user data');
     }
   };
 
@@ -407,9 +524,12 @@ const UsersTable = ({ onRefresh }) => {
                       <td>{user.role}</td>
                       <td>
                         <div className="action-buttons">
-                          <a href={`/edit/${user.id}`} className="action-link edit">
+                          <span
+                            className="action-link edit"
+                            onClick={() => handleEdit(user.id)}
+                          >
                             Edit
-                          </a>
+                          </span>
                           <span
                             className="action-link delete"
                             onClick={() => handleDelete(user.id)}
@@ -431,9 +551,12 @@ const UsersTable = ({ onRefresh }) => {
                   <div className="card-header">
                     <div className="card-id">ID: {user.id}</div>
                     <div className="card-actions">
-                      <a href={`/edit/${user.id}`} className="action-link edit">
+                      <span
+                        className="action-link edit"
+                        onClick={() => handleEdit(user.id)}
+                      >
                         Edit
-                      </a>
+                      </span>
                       <span
                         className="action-link delete"
                         onClick={() => handleDelete(user.id)}
@@ -544,6 +667,7 @@ const AdminDashboard = () => {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [uuid, setUuid] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [editingUser, setEditingUser] = useState(null);
 
   useEffect(() => {
     // Initialize Socket.IO
@@ -568,12 +692,21 @@ const AdminDashboard = () => {
     setRefreshKey(prev => prev + 1);
   };
 
+  const handleEditUser = (user) => {
+    setEditingUser(user);
+    setCurrentPage('users'); // Ensure we're on the users page
+  };
+
+  const handleCancelEdit = () => {
+    setEditingUser(null);
+  };
+
   const renderContent = () => {
     switch (currentPage) {
       case 'dashboard':
         return <DashboardContent />;
       case 'users':
-        return <UsersTable onRefresh={refreshKey} />;
+        return <UsersTable onRefresh={refreshKey} onEditUser={handleEditUser} />;
       case 'settings':
         return <SystemSettings />;
       case 'bookings':
@@ -595,7 +728,12 @@ const AdminDashboard = () => {
         </div>
       </main>
 
-      <RightPanel uuid={uuid} onFormSubmit={handleFormSubmit} />
+      <RightPanel 
+        uuid={uuid} 
+        onFormSubmit={handleFormSubmit}
+        editingUser={editingUser}
+        onCancelEdit={handleCancelEdit}
+      />
     </div>
   );
 };

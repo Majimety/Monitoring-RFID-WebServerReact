@@ -457,6 +457,30 @@ def delete_user_route(id):
     return jsonify(result)
 
 
+@app.route("/api/user/<int:id>", methods=["GET"])
+def get_single_user(id):
+    """ดึงข้อมูล user เดียวสำหรับ edit (ใช้โดย React)"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, uuid, user_id, first_name, last_name, name, email, role
+                FROM users_reg
+                WHERE id = ? AND is_deleted = 0
+                """,
+                (id,),
+            )
+            row = cursor.fetchone()
+
+            if row:
+                return jsonify(dict(row))
+            return jsonify({"error": "User not found"}), 404
+
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/edit_user/<int:id>")
 def edit_user_route(id):
     with get_db_connection() as conn:
@@ -496,12 +520,14 @@ def update_user_route(id):
         first_name = data.get("firstName") or data.get("first_name")
         last_name = data.get("lastName") or data.get("last_name")
         email = data.get("email")
+        role = data.get("role", "student")
     else:
         uuid = request.form.get("uuid")
         user_id = request.form.get("userId") or request.form.get("user_id")
         first_name = request.form.get("firstName") or request.form.get("first_name")
         last_name = request.form.get("lastName") or request.form.get("last_name")
         email = request.form.get("email")
+        role = request.form.get("role", "student")
 
     if check_is_user_id_exist_except_id(user_id, id)["success"]:
         return jsonify({"success": False, "message": "userId นี้มีอยู่แล้ว"}), 409
@@ -513,7 +539,7 @@ def update_user_route(id):
                 """
                 UPDATE users_reg
                 SET user_id = ?, first_name = ?, last_name = ?, 
-                    name = ?, email = ?, updated_at = CURRENT_TIMESTAMP
+                    name = ?, email = ?, role = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
                 (
@@ -522,6 +548,7 @@ def update_user_route(id):
                     last_name,
                     f"{first_name} {last_name}",
                     email,
+                    role,
                     id,
                 ),
             )
