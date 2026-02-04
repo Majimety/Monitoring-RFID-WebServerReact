@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import io from 'socket.io-client';
 import './AdminDashboard.css';
+import BookingsPage from './Bookingspage';
 
 // ==================== Sidebar Component ====================
 const Sidebar = ({ currentPage, onPageChange, onLogout, user }) => {
@@ -322,41 +323,112 @@ const RightPanel = ({ uuid, onFormSubmit, editingUser, onCancelEdit }) => {
 // ==================== Dashboard Content Component ====================
 const DashboardContent = () => {
   const [stats, setStats] = useState({
-    totalBooking: 0,
+    totalRequest: 0,
     bookingRequest: 0,
-    registerRequest: 10
+    registerRequest: 0
   });
-
-  const bookings = [
-    {
-      room: 'EN4401',
-      date: '25 Jul 2020',
-      time: '11:00 - 12:00',
-      detail: 'Project Meeting'
-    },
-    {
-      room: 'EN4401',
-      date: '26 Jul 2020',
-      time: '14:00 - 15:00',
-      detail: 'Seminar'
-    }
-  ];
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setStats({
-      totalBooking: bookings.length + 10,
-      bookingRequest: bookings.length,
-      registerRequest: 10
-    });
+    fetchDashboardData();
   }, []);
 
-  const handleAccept = (index) => {
-    alert(`Accepted booking ${index + 1}`);
+  const fetchDashboardData = async () => {
+    try {
+      // Fetch bookings
+      const bookingResponse = await fetch('/api/bookings/all', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (bookingResponse.ok) {
+        const bookingData = await bookingResponse.json();
+        const allBookings = bookingData.bookings || [];
+        
+        // Filter only pending bookings for dashboard
+        const pendingBookings = allBookings.filter(b => b.status === 'pending');
+        setBookings(pendingBookings.slice(0, 10)); // Show only first 10
+
+        // Calculate stats
+        setStats({
+          totalRequest: pendingBookings.length + 0, // Booking + Register requests
+          bookingRequest: pendingBookings.length,
+          registerRequest: 0 // Can be updated based on other API
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleDecline = (index) => {
-    alert(`Declined booking ${index + 1}`);
+  const handleAccept = async (bookingId) => {
+    const remark = prompt('หมายเหตุ (ถ้ามี):');
+    if (remark === null) return;
+
+    try {
+      const response = await fetch(`/api/bookings/${bookingId}/approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ remark })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        alert('อนุมัติการจองสำเร็จ');
+        fetchDashboardData(); // Refresh data
+      } else {
+        alert(data.message || 'เกิดข้อผิดพลาด');
+      }
+    } catch (error) {
+      console.error('Error approving booking:', error);
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    }
   };
+
+  const handleDecline = async (bookingId) => {
+    const remark = prompt('เหตุผลในการปฏิเสธ:');
+    if (!remark) return;
+
+    try {
+      const response = await fetch(`/api/bookings/${bookingId}/reject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ remark })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        alert('ปฏิเสธการจองสำเร็จ');
+        fetchDashboardData(); // Refresh data
+      } else {
+        alert(data.message || 'เกิดข้อผิดพลาด');
+      }
+    } catch (error) {
+      console.error('Error rejecting booking:', error);
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px', color: '#fff' }}>
+        <i className="fas fa-spinner fa-spin" style={{ fontSize: '32px' }}></i>
+        <p>กำลังโหลดข้อมูล...</p>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -368,8 +440,8 @@ const DashboardContent = () => {
 
       <div className="stats">
         <div className="stat-card">
-          <div className="label">Total Booking</div>
-          <b>{stats.totalBooking}</b>
+          <div className="label">Total Request</div>
+          <b>{stats.totalRequest}</b>
         </div>
         <div className="stat-card">
           <div className="label">Booking Request</div>
@@ -381,13 +453,14 @@ const DashboardContent = () => {
         </div>
       </div>
 
-      <div className="bookings-title">Bookings</div>
+      <div className="bookings-title">Recent Booking Requests</div>
 
       <div className="container">
         <div className="table-container">
           <table>
             <thead>
               <tr>
+                <th>ผู้จอง</th>
                 <th>Room</th>
                 <th>Date</th>
                 <th>Time</th>
@@ -396,29 +469,38 @@ const DashboardContent = () => {
               </tr>
             </thead>
             <tbody>
-              {bookings.map((booking, index) => (
-                <tr key={index}>
-                  <td>{booking.room}</td>
-                  <td>{booking.date}</td>
-                  <td>{booking.time}</td>
-                  <td>{booking.detail}</td>
-                  <td>
-                    <span
-                      className="btn-accept"
-                      onClick={() => handleAccept(index)}
-                    >
-                      Accept
-                    </span>
-                    {' | '}
-                    <span
-                      className="btn-decline"
-                      onClick={() => handleDecline(index)}
-                    >
-                      Decline
-                    </span>
+              {bookings.length === 0 ? (
+                <tr>
+                  <td colSpan="6" style={{textAlign: 'center', padding: '20px'}}>
+                    ไม่มีคำขอจองใหม่
                   </td>
                 </tr>
-              ))}
+              ) : (
+                bookings.map((booking) => (
+                  <tr key={booking.id}>
+                    <td>{booking.user_name || booking.user_email}</td>
+                    <td>{booking.room}</td>
+                    <td>{booking.date}</td>
+                    <td>{booking.start_time} - {booking.end_time}</td>
+                    <td>{booking.detail || '-'}</td>
+                    <td>
+                      <span
+                        className="btn-accept"
+                        onClick={() => handleAccept(booking.id)}
+                      >
+                        Accept
+                      </span>
+                      {' | '}
+                      <span
+                        className="btn-decline"
+                        onClick={() => handleDecline(booking.id)}
+                      >
+                        Decline
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -735,7 +817,7 @@ const AdminDashboard = ({ user, onLogout }) => {
       case 'settings':
         return <SystemSettings />;
       case 'bookings':
-        return <div className="page-title-box"><span className="page-title">Booking Requests (Coming Soon)</span></div>;
+        return <BookingsPage />;
       case 'logs':
         return <div className="page-title-box"><span className="page-title">Access Logs (Coming Soon)</span></div>;
       default:
