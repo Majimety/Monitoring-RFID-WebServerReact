@@ -3,6 +3,7 @@ import Login from './Login';
 import Signup from './Signup';
 import AdminDashboard from './AdminDashboard';
 import RoomBooking from './RoomBooking';
+import Profile from './Profile';
 
 const App = () => {
   const [currentView, setCurrentView] = useState('login'); // 'login', 'signup', 'dashboard', 'booking'
@@ -88,6 +89,7 @@ const App = () => {
       <AdminDashboard 
         user={user}
         onLogout={handleLogout}
+        onNavigate={(view) => setCurrentView(view)}
       />
     );
   }
@@ -97,6 +99,17 @@ const App = () => {
       <RoomBooking 
         user={user}
         onLogout={handleLogout}
+        onNavigate={(view) => setCurrentView(view)}
+      />
+    );
+  }
+
+  if (currentView === 'profile' && user) {
+    return (
+      <Profile
+        user={user}
+        onLogout={handleLogout}
+        onNavigate={(view) => setCurrentView(view)}
       />
     );
   }

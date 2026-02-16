@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './RoomBooking.css';
 
-const RoomBooking = ({ user, onLogout }) => {
+const RoomBooking = ({ user, onLogout, onNavigate }) => {
   const [requests, setRequests] = useState([]);
   const [stats, setStats] = useState({ approved: 0, rejected: 0, pending: 0, usedLimit: 0 });
   const [showRequestDialog, setShowRequestDialog] = useState(false);
@@ -12,6 +12,7 @@ const RoomBooking = ({ user, onLogout }) => {
   const [selectedSlots, setSelectedSlots] = useState([]);
   const [roomSelections, setRoomSelections] = useState(null);
   const [daySelections, setDaySelections] = useState(null);
+  const [rangeStartSlot, setRangeStartSlot] = useState(null);
 
   const rooms = ['4101', '4210', '4303', '4309', '4410', 'คลับภาควิชา'];
   const days = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์', 'เสาร์', 'อาทิตย์'];
@@ -32,7 +33,7 @@ const RoomBooking = ({ user, onLogout }) => {
   // Fetch booking requests
   useEffect(() => {
     fetchRequests();
-    
+
     // Set default date to today
     const today = new Date().toISOString().split('T')[0];
     setSelectedDate(today);
@@ -45,7 +46,7 @@ const RoomBooking = ({ user, onLogout }) => {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setRequests(data.bookings || []);
@@ -60,7 +61,7 @@ const RoomBooking = ({ user, onLogout }) => {
     const approved = data.filter(r => r.status === 'approved').length;
     const rejected = data.filter(r => r.status === 'rejected').length;
     const pending = data.filter(r => r.status === 'pending').length;
-    
+
     setStats({
       approved,
       rejected,
@@ -81,43 +82,110 @@ const RoomBooking = ({ user, onLogout }) => {
     return (hh < 10 ? '0' + hh : '' + hh) + ':' + (mm < 10 ? '0' + mm : '' + mm);
   };
 
-  // Handle slot selection
+  // Handle slot selection with range support
   const handleSlotClick = (slot) => {
-    let exists;
     if (slot.day !== undefined) {
-      // Room By Modal
-      exists = selectedSlots.find(s => 
-        s.day === slot.day && s.time === slot.time
-      );
-    } else {
-      // Day By Modal
-      exists = selectedSlots.find(s => 
-        s.room === slot.room && s.time === slot.time
-      );
-    }
-
-    if (exists) {
-      if (slot.day !== undefined) {
-        setSelectedSlots(selectedSlots.filter(s => 
-          !(s.day === slot.day && s.time === slot.time)
-        ));
+      // Room By Modal - Range selection by day
+      if (rangeStartSlot === null) {
+        // First click - set start of range
+        setRangeStartSlot(slot);
+        if (!isSlotSelected(slot.day, slot.time)) {
+          setSelectedSlots([...selectedSlots, slot]);
+        }
       } else {
-        setSelectedSlots(selectedSlots.filter(s => 
-          !(s.room === slot.room && s.time === slot.time)
-        ));
+        // Second click - select range between start and current
+        if (rangeStartSlot.day === slot.day) {
+          // Same day - select all times between
+          const startTime = timeToMinutes(rangeStartSlot.time);
+          const endTime = timeToMinutes(slot.time);
+          const minTime = Math.min(startTime, endTime);
+          const maxTime = Math.max(startTime, endTime);
+
+          // Get all times in range
+          const newSlots = [];
+          timeSlots.forEach(time => {
+            const minutes = timeToMinutes(time);
+            if (minutes >= minTime && minutes <= maxTime) {
+              const slotObj = { day: slot.day, time, dayOffset: slot.dayOffset };
+              if (!selectedSlots.some(s => s.day === slotObj.day && s.time === slotObj.time)) {
+                newSlots.push(slotObj);
+              }
+            }
+          });
+
+          setSelectedSlots([...selectedSlots, ...newSlots]);
+          setRangeStartSlot(null);
+        } else {
+          // Different day - just click on individual slot
+          const exists = selectedSlots.find(s =>
+            s.day === slot.day && s.time === slot.time
+          );
+          if (exists) {
+            setSelectedSlots(selectedSlots.filter(s =>
+              !(s.day === slot.day && s.time === slot.time)
+            ));
+          } else {
+            setSelectedSlots([...selectedSlots, slot]);
+          }
+          setRangeStartSlot(null);
+        }
       }
     } else {
-      setSelectedSlots([...selectedSlots, slot]);
+      // Day By Modal - Range selection by room
+      if (rangeStartSlot === null) {
+        // First click - set start of range
+        setRangeStartSlot(slot);
+        if (!isSlotSelected(null, slot.time, slot.room)) {
+          setSelectedSlots([...selectedSlots, slot]);
+        }
+      } else {
+        // Second click - select range between start and current
+        if (rangeStartSlot.room === slot.room) {
+          // Same room - select all times between
+          const startTime = timeToMinutes(rangeStartSlot.time);
+          const endTime = timeToMinutes(slot.time);
+          const minTime = Math.min(startTime, endTime);
+          const maxTime = Math.max(startTime, endTime);
+
+          // Get all times in range
+          const newSlots = [];
+          timeSlots.forEach(time => {
+            const minutes = timeToMinutes(time);
+            if (minutes >= minTime && minutes <= maxTime) {
+              const slotObj = { room: slot.room, time };
+              if (!selectedSlots.some(s => s.room === slotObj.room && s.time === slotObj.time)) {
+                newSlots.push(slotObj);
+              }
+            }
+          });
+
+          setSelectedSlots([...selectedSlots, ...newSlots]);
+          setRangeStartSlot(null);
+        } else {
+          // Different room - just click on individual slot
+          const exists = selectedSlots.find(s =>
+            s.room === slot.room && s.time === slot.time
+          );
+          if (exists) {
+            setSelectedSlots(selectedSlots.filter(s =>
+              !(s.room === slot.room && s.time === slot.time)
+            ));
+          } else {
+            setSelectedSlots([...selectedSlots, slot]);
+          }
+          setRangeStartSlot(null);
+        }
+      }
     }
   };
 
   const isSlotSelected = (day, time, room) => {
     if (day !== null && day !== undefined) {
-      return selectedSlots.some(s => 
+      return selectedSlots.some(s =>
         s.day === day && s.time === time
       );
     } else if (room !== null && room !== undefined) {
-      return selectedSlots.some(s => 
+      return selectedSlots.some(s =>
         s.room === room && s.time === time
       );
     }
@@ -135,7 +203,7 @@ const RoomBooking = ({ user, onLogout }) => {
 
     const result = {};
     Object.keys(groups).forEach(d => {
-      const arr = Array.from(new Set(groups[d])).sort((a,b) => a - b);
+      const arr = Array.from(new Set(groups[d])).sort((a, b) => a - b);
       if (arr.length === 0) {
         result[d] = [];
         return;
@@ -150,8 +218,8 @@ const RoomBooking = ({ user, onLogout }) => {
   const computeRangesForRoom = (cells, room) => {
     const times = Array.from(new Set(
       cells.filter(c => c.room === room).map(c => timeToMinutes(c.time))
-    )).sort((a,b) => a - b);
-    
+    )).sort((a, b) => a - b);
+
     if (times.length === 0) return [];
     const minStart = times[0];
     const maxEnd = times[times.length - 1] + 60;
@@ -178,34 +246,34 @@ const RoomBooking = ({ user, onLogout }) => {
     }));
 
     const rangesByDay = computeRangesByDay(selections);
-    
+
     // Get the first (and only) day offset
     const dayOffset = uniqueDays[0];
     const ranges = rangesByDay[dayOffset];
-    
+
     // Calculate the actual date from day of week
     // dayOffset: 0=จันทร์, 1=อังคาร, 2=พุธ, 3=พฤหัส, 4=ศุกร์, 5=เสาร์, 6=อาทิตย์
     const today = new Date();
     const currentDayOfWeek = today.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
-    
+
     // Convert Thai day index to JavaScript day index
     // Thai: 0=จันทร์, 1=อังคาร, 2=พุธ, 3=พฤหัส, 4=ศุกร์, 5=เสาร์, 6=อาทิตย์
     // JS:   1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday, 0=Sunday
     const targetDayJS = dayOffset === 6 ? 0 : dayOffset + 1;
-    
+
     // Calculate days until target day
     let daysUntilTarget = targetDayJS - currentDayOfWeek;
     if (daysUntilTarget <= 0) {
       // If the day has passed or is today, go to next week
       daysUntilTarget += 7;
     }
-    
+
     const baseDate = new Date(today);
     baseDate.setDate(today.getDate() + daysUntilTarget);
     const dateStr = baseDate.toISOString().slice(0, 10);
-    
-    setRoomSelections({ 
-      room: selectedRoom, 
+
+    setRoomSelections({
+      room: selectedRoom,
       date: dateStr,
       start_time: ranges[0].start,
       end_time: ranges[0].end
@@ -229,9 +297,9 @@ const RoomBooking = ({ user, onLogout }) => {
 
     const room = roomsInSelection[0];
     const ranges = computeRangesForRoom(selectedSlots, room);
-    setDaySelections({ 
-      date: selectedDate, 
-      room, 
+    setDaySelections({
+      date: selectedDate,
+      room,
       start_time: ranges[0].start,
       end_time: ranges[0].end
     });
@@ -278,7 +346,7 @@ const RoomBooking = ({ user, onLogout }) => {
       });
 
       const data = await response.json();
-      
+
       if (response.ok) {
         alert('ส่งคำขอจองสำเร็จ!');
         fetchRequests();
@@ -297,16 +365,19 @@ const RoomBooking = ({ user, onLogout }) => {
     setRoomSelections(null);
     setDaySelections(null);
     setSelectedSlots([]);
+    setRangeStartSlot(null);
   };
 
   const closeRoomByModal = () => {
     setShowRoomByModal(false);
     setSelectedSlots([]);
+    setRangeStartSlot(null);
   };
 
   const closeDayByModal = () => {
     setShowDayByModal(false);
     setSelectedSlots([]);
+    setRangeStartSlot(null);
   };
 
   const getStatusBadge = (status) => {
@@ -327,15 +398,15 @@ const RoomBooking = ({ user, onLogout }) => {
             <img src="/logo/enkku_logo.png" alt="Logo" className="header-logo" />
             <h1>Room Access Control</h1>
           </div>
-          
+
           <div className="user-section">
-            <div className="user-info">
-              <i className="fa-solid fa-user"></i>
-              <span>{user?.first_name} {user?.last_name}</span>
-            </div>
             <button className="logout-btn" onClick={onLogout}>
               <i className="fa-solid fa-right-from-bracket"></i>
               Logout
+            </button>
+            <button className="user-info profile-button" onClick={() => onNavigate && onNavigate('profile')}>
+              <i className="fa-solid fa-user"></i>
+              <span className='profileIcon'>{user?.first_name} {user?.last_name}</span>
             </button>
           </div>
         </div>
@@ -344,6 +415,7 @@ const RoomBooking = ({ user, onLogout }) => {
           setSelectedSlots([]);
           setRoomSelections(null);
           setDaySelections(null);
+          setRangeStartSlot(null);
           setShowRequestDialog(true);
         }}>
           <i className="fas fa-plus"></i> ส่งคำขอใหม่
@@ -397,7 +469,7 @@ const RoomBooking = ({ user, onLogout }) => {
             <tbody>
               {requests.length === 0 ? (
                 <tr>
-                  <td colSpan="8" style={{textAlign: 'center'}}>ไม่มีข้อมูล</td>
+                  <td colSpan="8" style={{ textAlign: 'center' }}>ไม่มีข้อมูล</td>
                 </tr>
               ) : (
                 requests.map((req, idx) => {
@@ -457,48 +529,48 @@ const RoomBooking = ({ user, onLogout }) => {
                 <h2 id="formTitle">รายละเอียดการจอง</h2>
                 <form onSubmit={handleSubmitRequest}>
                   <label>ห้อง
-                    <input 
-                      name="room" 
-                      value={roomSelections?.room || daySelections?.room || ''} 
-                      readOnly 
-                      required 
+                    <input
+                      name="room"
+                      value={roomSelections?.room || daySelections?.room || ''}
+                      readOnly
+                      required
                     />
                   </label>
-                  
+
                   <label>วันที่จอง
-                    <input 
-                      type="date" 
-                      name="date" 
-                      value={roomSelections?.date || daySelections?.date || ''} 
+                    <input
+                      type="date"
+                      name="date"
+                      value={roomSelections?.date || daySelections?.date || ''}
                       readOnly
-                      required 
+                      required
                     />
                   </label>
-                  
+
                   <label>เวลาเริ่ม
-                    <input 
-                      type="time" 
-                      name="start_time" 
-                      value={roomSelections?.start_time || daySelections?.start_time || ''} 
+                    <input
+                      type="time"
+                      name="start_time"
+                      value={roomSelections?.start_time || daySelections?.start_time || ''}
                       readOnly
-                      required 
+                      required
                     />
                   </label>
-                  
+
                   <label>เวลาสิ้นสุด
-                    <input 
-                      type="time" 
-                      name="end_time" 
-                      value={roomSelections?.end_time || daySelections?.end_time || ''} 
+                    <input
+                      type="time"
+                      name="end_time"
+                      value={roomSelections?.end_time || daySelections?.end_time || ''}
                       readOnly
-                      required 
+                      required
                     />
                   </label>
-                  
+
                   <label>รายละเอียด
                     <textarea name="detail" rows="3" placeholder="กรุณาระบุวัตถุประสงค์ในการใช้ห้อง..."></textarea>
                   </label>
-                  
+
                   <div className="modal-actions">
                     <button type="submit" className="request-btn">ส่งคำขอ</button>
                     <button type="button" className="request-btn cancel" onClick={closeRequestDialog}>
@@ -518,11 +590,11 @@ const RoomBooking = ({ user, onLogout }) => {
           <div className="modal-overlay" onClick={closeRoomByModal}></div>
           <div className="modal-content large">
             <h2>เลือกจองตามห้องที่ต้องการ</h2>
-            
+
             <div className="room-selector">
               <label>ห้อง:
-                <select 
-                  value={selectedRoom} 
+                <select
+                  value={selectedRoom}
                   onChange={(e) => setSelectedRoom(e.target.value)}
                 >
                   {rooms.map(r => (
@@ -532,10 +604,10 @@ const RoomBooking = ({ user, onLogout }) => {
               </label>
             </div>
 
-            <p style={{ 
-              marginTop: '10px', 
-              marginBottom: '15px', 
-              color: '#d88b8b', 
+            <p style={{
+              marginTop: '10px',
+              marginBottom: '15px',
+              color: '#d88b8b',
               fontSize: '14px',
               fontWeight: '600',
               background: '#fff5f5',
@@ -543,7 +615,7 @@ const RoomBooking = ({ user, onLogout }) => {
               borderRadius: '6px',
               border: '1px solid #fdd'
             }}>
-              <i className="fas fa-info-circle"></i> หมายเหตุ: กรุณาเลือกเพียงวันเดียว
+              <i className="fas fa-info-circle"></i> หมายเหตุ: กรุณาเลือกเพียงวันเดียว | คลิกช่วงเวลา 2 ครั้งเพื่อเลือกช่องเวลาตั้งแต่เริ่มต้นถึงสิ้นสุด
             </p>
 
             <div className="grid-wrapper">
@@ -563,7 +635,7 @@ const RoomBooking = ({ user, onLogout }) => {
                       {timeSlots.map(time => {
                         const isSelected = isSlotSelected(day, time);
                         return (
-                          <td 
+                          <td
                             key={time}
                             className={`slot ${isSelected ? 'selected' : ''}`}
                             onClick={() => handleSlotClick({ day, time, dayOffset: dayIdx })}
@@ -591,21 +663,21 @@ const RoomBooking = ({ user, onLogout }) => {
           <div className="modal-overlay" onClick={closeDayByModal}></div>
           <div className="modal-content large">
             <h2>เลือกจองตามวัน/เวลาที่ต้องการ</h2>
-            
+
             <div className="day-controls">
               <label>วันที่:
-                <input 
-                  type="date" 
-                  value={selectedDate} 
+                <input
+                  type="date"
+                  value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
                 />
               </label>
             </div>
 
-            <p style={{ 
-              marginTop: '10px', 
-              marginBottom: '15px', 
-              color: '#d88b8b', 
+            <p style={{
+              marginTop: '10px',
+              marginBottom: '15px',
+              color: '#d88b8b',
               fontSize: '14px',
               fontWeight: '600',
               background: '#fff5f5',
@@ -613,7 +685,7 @@ const RoomBooking = ({ user, onLogout }) => {
               borderRadius: '6px',
               border: '1px solid #fdd'
             }}>
-              <i className="fas fa-info-circle"></i> หมายเหตุ: กรุณาเลือกเพียงห้องเดียว
+              <i className="fas fa-info-circle"></i> หมายเหตุ: กรุณาเลือกเพียงห้องเดียว | คลิกช่วงเวลา 2 ครั้งเพื่อเลือกช่องเวลาตั้งแต่เริ่มต้นถึงสิ้นสุด
             </p>
 
             <div className="grid-wrapper">
@@ -633,7 +705,7 @@ const RoomBooking = ({ user, onLogout }) => {
                       {timeSlots.map(time => {
                         const isSelected = isSlotSelected(null, time, room);
                         return (
-                          <td 
+                          <td
                             key={time}
                             className={`slot ${isSelected ? 'selected' : ''}`}
                             onClick={() => handleSlotClick({ room, time })}
