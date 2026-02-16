@@ -1,0 +1,194 @@
+# ============================================
+# RFID Monitoring System - .gitignore
+# ============================================
+
+# ==================== Python ====================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.pytest_cache/
+
+# Flask
+instance/
+.webassets-cache
+*.log
+
+# ==================== Database ====================
+# SQLite databases (comment out if you want to track database.db)
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# Database backups
+*.sql
+*.dump
+
+# ==================== Node.js / React ====================
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Production builds
+dist/
+dist-ssr/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs
+*.log
+
+# Testing
+coverage/
+
+# Misc
+.DS_Store
+*.pem
+
+# ==================== IDEs / Editors ====================
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+.idea_modules/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# ==================== Operating System ====================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ==================== Project Specific ====================
+# Uploaded photos/images
+photos/*
+!photos/.gitkeep
+
+# User uploads (if you have user-uploaded files)
+uploads/
+temp/
+
+# Secret keys and credentials
+secrets.py
+config.local.py
+*.key
+*.pem
+*.crt
+
+# Session files
+flask_session/
+
+# Cache
+.cache/
+*.cache
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# ==================== Documentation ====================
+# Ignore large documentation files (optional)
+# docs/_build/
+
+# ==================== Deployment ====================
+# Deployment configs (modify as needed)
+# docker-compose.override.yml
+# kubernetes/*.secret.yaml
+
+# ==================== Keep These Files ====================
+# Add .gitkeep files to track empty directories
+!.gitkeep
+
+# Keep example/template files
+!example.env
+!config.example.py

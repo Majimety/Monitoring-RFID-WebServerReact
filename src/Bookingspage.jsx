@@ -238,7 +238,7 @@ const BookingsPage = () => {
                           {badge.text}
                         </span>
                       </td>
-                      <td>{booking.approved_by || '-'}</td>
+                      <td>{booking.approved_by_name || '-'}</td>
                       <td style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {booking.remark || '-'}
                       </td>

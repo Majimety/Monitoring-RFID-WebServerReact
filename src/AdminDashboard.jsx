@@ -713,59 +713,419 @@ const UsersTable = ({ onRefresh, onEditUser }) => {
   );
 };
 
+// ==================== Room Card Component ====================
+const RoomCard = ({ room, onSelect, isSelected }) => {
+  const doorOnline = room.doorOnline ?? false;
+  const rfidOnline = room.rfidOnline ?? false;
+  const doorStatus = room.doorStatus ?? 'LOCKED';
+
+  return (
+    <div
+      className={`room-card ${isSelected ? 'selected' : ''}`}
+      onClick={() => onSelect(room)}
+    >
+      <div className="room-card-header">
+        <div className="room-number">
+          <i className="fa-solid fa-door-closed"></i>
+          {room.name}
+        </div>
+        <div className={`door-pill ${doorStatus === 'OPEN' ? 'open' : 'locked'}`}>
+          {doorStatus === 'OPEN' ? 'OPEN' : 'LOCKED'}
+        </div>
+      </div>
+
+      <div className="room-device-list">
+        <div className="room-device-item">
+          <span className="device-label">
+            <i className="fa-solid fa-wifi"></i> Door Controller
+          </span>
+          <span className={`device-dot ${doorOnline ? 'online' : 'offline'}`}>
+            {doorOnline ? 'Online' : 'Offline'}
+          </span>
+        </div>
+        <div className="room-device-item">
+          <span className="device-label">
+            <i className="fa-solid fa-credit-card"></i> RFID Reader
+          </span>
+          <span className={`device-dot ${rfidOnline ? 'online' : 'offline'}`}>
+            {rfidOnline ? 'Online' : 'Offline'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ==================== System Settings Component ====================
-const SystemSettings = () => {
-  const [doorStatus, setDoorStatus] = useState('LOCKED');
+const SystemSettings = ({ onSelectRoom, selectedRoom, refreshKey }) => {
+  const [rooms, setRooms] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const openDoor = async () => {
+  // Load rooms from API
+  const fetchRooms = async () => {
     try {
-      const response = await fetch('/api/door/open', { method: 'POST' });
-      const data = await response.json();
-      alert(data.message);
-      setDoorStatus('OPEN');
-    } catch (error) {
-      alert('Error opening door');
+      const res = await fetch('/api/rooms');
+      if (res.ok) {
+        const data = await res.json();
+        setRooms(data.rooms || []);
+      }
+    } catch (e) {
+      console.error('Error fetching rooms:', e);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const closeDoor = async () => {
+  // Re-fetch when parent signals a change (e.g. room added)
+  useEffect(() => {
+    fetchRooms();
+  }, [refreshKey]);
+
+  // Poll room device statuses every 3 seconds
+  useEffect(() => {
+    if (rooms.length === 0) return;
+    const poll = async () => {
+      const updated = await Promise.all(
+        rooms.map(async (room) => {
+          try {
+            const res = await fetch(`/api/door/status?room=${encodeURIComponent(room.name)}`);
+            if (res.ok) {
+              const data = await res.json();
+              return {
+                ...room,
+                doorStatus: data.door_status ?? room.doorStatus ?? 'LOCKED',
+                doorOnline: data.door_online ?? room.doorOnline ?? false,
+                rfidOnline: data.rfid_online ?? room.rfidOnline ?? false,
+              };
+            }
+          } catch { /* keep existing state */ }
+          return room;
+        })
+      );
+      setRooms(updated);
+    };
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [rooms.length]);
+
+  const handleRenameRoom = async (roomId, newName) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
     try {
-      const response = await fetch('/api/door/close', { method: 'POST' });
-      const data = await response.json();
-      alert(data.message);
-      setDoorStatus('LOCKED');
-    } catch (error) {
-      alert('Error closing door');
+      const res = await fetch(`/api/rooms/${roomId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await fetchRooms();
+        if (selectedRoom?.id === roomId) {
+          onSelectRoom({ ...selectedRoom, name: trimmed });
+        }
+      } else {
+        alert(data.error || 'แก้ไขชื่อห้องไม่สำเร็จ');
+      }
+    } catch {
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
     }
   };
+
+  const handleDeleteRoom = async (roomId) => {
+    if (!window.confirm('ต้องการลบห้องนี้?')) return;
+    try {
+      const res = await fetch(`/api/rooms/${roomId}`, { method: 'DELETE' });
+      if (res.ok) {
+        await fetchRooms();
+        if (selectedRoom?.id === roomId) onSelectRoom({ __addMode: true });
+      } else {
+        const data = await res.json();
+        alert(data.error || 'ลบห้องไม่สำเร็จ');
+      }
+    } catch {
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div>
+        <div className="page-title-box"><div className="page-title">Device Status</div></div>
+        <div style={{ color: '#fff', padding: 20 }}>กำลังโหลด...</div>
+      </div>
+    );
+  }
 
   return (
     <div>
       <div className="page-title-box">
-        <div className="page-title">System Settings</div>
+        <div className="page-title">Device Status</div>
       </div>
 
-      <div className="door-stats">
-        <div className="stat-card">
-          <div className="label">Status</div>
-          <div className={`door-status ${doorStatus.toLowerCase()}`}>
-            {doorStatus}
-          </div>
+      <div className="settings-toolbar">
+        <span className="settings-subtitle">
+          <i className="fa-solid fa-building"></i> All Rooms
+        </span>
+        <button
+          className="add-room-btn"
+          onClick={() => onSelectRoom({ __addMode: true })}
+        >
+          <i className="fa-solid fa-plus"></i> Add Room
+        </button>
+      </div>
 
-          <div className="door-actions">
-            <button className="door-btn open" onClick={openDoor}>
-              OPEN
+      <div className="rooms-grid">
+        {rooms.length === 0 && (
+          <div className="no-rooms">
+            <i className="fa-solid fa-door-open" style={{ fontSize: 40, color: '#d28b8b', marginBottom: 12 }}></i>
+            <p>ยังไม่มีห้อง กดปุ่ม "Add Room" เพื่อเพิ่ม</p>
+          </div>
+        )}
+        {rooms.map(room => (
+          <RoomCard
+            key={room.id}
+            room={room}
+            isSelected={selectedRoom?.id === room.id}
+            onSelect={(r) => onSelectRoom({
+              ...r,
+              __addMode: false,
+              __deleteCallback: () => handleDeleteRoom(r.id),
+              __renameCallback: (newName) => handleRenameRoom(r.id, newName),
+            })}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ==================== Room Right Panel Component ====================
+const RoomRightPanel = ({ selectedRoom, onClose, onAddRoom }) => {
+  const [roomName, setRoomName] = useState('');
+  const [cmdMsg, setCmdMsg] = useState({ text: '', type: '' });
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+
+  useEffect(() => {
+    setIsRenaming(false);
+    setRenameValue(selectedRoom?.name || '');
+    setCmdMsg({ text: '', type: '' });
+  }, [selectedRoom?.id]);
+
+  // Reset roomName when entering add mode
+  useEffect(() => {
+    if (selectedRoom?.__addMode) {
+      setRoomName('');
+    }
+  }, [selectedRoom?.__addMode]);
+
+  if (!selectedRoom) {
+    return (
+      <aside className="right-panel">
+        <div className="right-panel-empty">
+          <i className="fa-solid fa-door-closed" style={{ fontSize: 48, color: '#d28b8b', marginBottom: 16 }}></i>
+          <p style={{ color: '#888', textAlign: 'center', fontSize: 14 }}>
+            เลือกห้องเพื่อดู Status<br />หรือกด Add Room เพื่อเพิ่มห้องใหม่
+          </p>
+        </div>
+      </aside>
+    );
+  }
+
+  if (selectedRoom.__addMode) {
+    return (
+      <aside className="right-panel">
+        <h3>Add New Room</h3>
+        <input
+          type="text"
+          placeholder="Room Number (EN 1234)"
+          value={roomName}
+          onChange={e => setRoomName(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && roomName.trim()) { 
+              onAddRoom(roomName);
+            }
+          }}
+          style={{ width: '100%', marginBottom: 10, padding: 10, borderRadius: 6, border: '1px solid #ccc', fontSize: 14, boxSizing: 'border-box' }}
+        />
+        <button
+          onClick={() => onAddRoom(roomName)}
+          style={{ width: '100%', padding: '10px', background: '#d28b8b', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer', marginBottom: 8 }}
+        >
+          <i className="fa-solid fa-plus"></i> Add Room
+        </button>
+        <button
+          onClick={onClose}
+          style={{ width: '100%', padding: '10px', background: '#f2f2f2', color: '#333', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}
+        >
+          Cancel
+        </button>
+      </aside>
+    );
+  }
+
+  const sendDoorCmd = async (cmd) => {
+    setCmdMsg({ text: '', type: '' });
+    try {
+      const res = await fetch(`/api/door/${cmd}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room: selectedRoom.name })
+      });
+      const data = await res.json();
+      setCmdMsg({ text: data.message || `Door ${cmd} sent`, type: 'success' });
+      setTimeout(() => setCmdMsg({ text: '', type: '' }), 2500);
+    } catch {
+      setCmdMsg({ text: 'Error sending command', type: 'error' });
+    }
+  };
+
+  const handleRenameSubmit = () => {
+    if (renameValue.trim() && selectedRoom.__renameCallback) {
+      selectedRoom.__renameCallback(renameValue.trim());
+    }
+    setIsRenaming(false);
+  };
+
+  const doorStatus = selectedRoom.doorStatus ?? 'LOCKED';
+  const doorOnline = selectedRoom.doorOnline ?? false;
+  const rfidOnline = selectedRoom.rfidOnline ?? false;
+
+  return (
+    <aside className="right-panel">
+      {/* Header */}
+      {isRenaming ? (
+        <div style={{ marginBottom: 16 }}>
+          <div className="panel-section-title" style={{ marginBottom: 8 }}>Rename Room</div>
+          <input
+            type="text"
+            value={renameValue}
+            onChange={e => setRenameValue(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleRenameSubmit(); if (e.key === 'Escape') setIsRenaming(false); }}
+            autoFocus
+            style={{ width: '100%', padding: 10, borderRadius: 6, border: '1px solid #d28b8b', fontSize: 14, boxSizing: 'border-box', marginBottom: 8 }}
+          />
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={handleRenameSubmit} style={{ flex: 1, padding: '8px', background: '#d28b8b', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>
+              Save
             </button>
-            <button className="door-btn close" onClick={closeDoor}>
-              CLOSE
+            <button onClick={() => setIsRenaming(false)} style={{ flex: 1, padding: '8px', background: '#f2f2f2', color: '#333', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>
+              Cancel
             </button>
           </div>
         </div>
+      ) : (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ 
+                width: 40, 
+                height: 40, 
+                background: 'linear-gradient(135deg, #d28b8b 0%, #c77676 100%)', 
+                borderRadius: 10, 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                boxShadow: '0 2px 8px rgba(210, 139, 139, 0.3)'
+              }}>
+                <i className="fa-solid fa-door-closed" style={{ color: 'white', fontSize: 18 }}></i>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: '#999', fontWeight: 500, marginBottom: 2 }}>ROOM</div>
+                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#333' }}>{selectedRoom.name}</h3>
+              </div>
+            </div>
+            <button
+              title="Rename Room"
+              onClick={() => { setRenameValue(selectedRoom.name); setIsRenaming(true); }}
+              style={{ 
+                background: 'white',
+                border: '1px solid #e0e0e0', 
+                borderRadius: 8, 
+                width: 36,
+                height: 36,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer', 
+                color: '#666',
+                transition: 'all 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#f5f5f5';
+                e.currentTarget.style.borderColor = '#d28b8b';
+                e.currentTarget.style.color = '#d28b8b';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'white';
+                e.currentTarget.style.borderColor = '#e0e0e0';
+                e.currentTarget.style.color = '#666';
+              }}
+            >
+              <i className="fa-solid fa-pen" style={{ fontSize: 14 }}></i>
+            </button>
+          </div>
+          <div style={{ height: 1, background: 'linear-gradient(to right, #e0e0e0, transparent)', marginBottom: 16 }}></div>
+        </div>
+      )}
 
-        <div className="stat-card empty"></div>
-        <div className="stat-card empty"></div>
+      {/* Door Status */}
+      <div className="panel-section-title">Door Status</div>
+      <div className={`panel-status-badge ${doorStatus === 'OPEN' ? 'open' : 'locked'}`}>
+        <i className={`fa-solid ${doorStatus === 'OPEN' ? 'fa-lock-open' : 'fa-lock'}`}></i>
+        {doorStatus}
       </div>
-    </div>
+
+      {/* Controls */}
+      <div className="panel-section-title" style={{ marginTop: 18 }}>Controls</div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+        <button className="door-btn open" style={{ flex: 1 }} onClick={() => sendDoorCmd('open')}>
+          <i className="fa-solid fa-lock-open"></i> OPEN
+        </button>
+        <button className="door-btn close" style={{ flex: 1 }} onClick={() => sendDoorCmd('close')}>
+          <i className="fa-solid fa-lock"></i> LOCK
+        </button>
+      </div>
+
+      {cmdMsg.text && (
+        <div className={`message ${cmdMsg.type}`} style={{ marginBottom: 12 }}>
+          {cmdMsg.text}
+        </div>
+      )}
+
+      {/* Device Status */}
+      <div className="panel-section-title" style={{ marginTop: 10 }}>Devices</div>
+      <div className="panel-device-list">
+        <div className="panel-device-item">
+          <div className="panel-device-label">
+            <i className="fa-solid fa-wifi"></i> Door Controller
+          </div>
+          <span className={`device-dot ${doorOnline ? 'online' : 'offline'}`}>
+            ● {doorOnline ? 'Online' : 'Offline'}
+          </span>
+        </div>
+        <div className="panel-device-item">
+          <div className="panel-device-label">
+            <i className="fa-solid fa-credit-card"></i> RFID Reader
+          </div>
+          <span className={`device-dot ${rfidOnline ? 'online' : 'offline'}`}>
+            ● {rfidOnline ? 'Online' : 'Offline'}
+          </span>
+        </div>
+      </div>
+
+      {/* Delete */}
+      <div style={{ marginTop: 'auto', paddingTop: 20 }}>
+        <button
+          onClick={() => { if (selectedRoom.__deleteCallback) selectedRoom.__deleteCallback(); }}
+          style={{ width: '100%', padding: '10px', background: '#fff1f1', color: '#d90429', border: '1px solid #f5b5b5', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}
+        >
+          <i className="fa-solid fa-trash"></i> Remove Room
+        </button>
+      </div>
+    </aside>
   );
 };
 
@@ -775,24 +1135,18 @@ const AdminDashboard = ({ user, onLogout }) => {
   const [uuid, setUuid] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [editingUser, setEditingUser] = useState(null);
+  const [selectedRoom, setSelectedRoom] = useState(null);
+  const [settingsRefreshKey, setSettingsRefreshKey] = useState(0);
 
   useEffect(() => {
-    // Initialize Socket.IO
     const socket = io({ transports: ['websocket', 'polling'] });
-
-    // Reset UUID on load
     fetch('/api/reset_uuid', { method: 'POST' }).catch(err => {
       console.error('Error resetting UUID:', err);
     });
-
-    // Listen for UUID updates
     socket.on('uuid_update', (data) => {
       setUuid(data.uuid || '');
     });
-
-    return () => {
-      socket.disconnect();
-    };
+    return () => { socket.disconnect(); };
   }, []);
 
   const handleFormSubmit = () => {
@@ -808,6 +1162,48 @@ const AdminDashboard = ({ user, onLogout }) => {
     setEditingUser(null);
   };
 
+  // Add room — lives at top level so no stale closure issues
+  const handleAddRoom = async (roomName) => {
+    const trimmed = (roomName || '').trim();
+    if (!trimmed) {
+      alert('กรุณากรอกชื่อห้อง');
+      return;
+    }
+    try {
+      const res = await fetch('/api/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`เพิ่มห้อง "${trimmed}" สำเร็จ`);
+        setSettingsRefreshKey(k => k + 1); // trigger SystemSettings to re-fetch
+        // Force a new add mode state to reset the input
+        setSelectedRoom(null);
+        setTimeout(() => setSelectedRoom({ __addMode: true }), 50);
+      } else {
+        alert(data.error || 'เพิ่มห้องไม่สำเร็จ');
+      }
+    } catch (err) {
+      console.error('Add room error:', err);
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    }
+  };
+
+  // When page changes away from settings, reset room selection
+  const handlePageChange = (page) => {
+    if (page !== 'settings') setSelectedRoom(null);
+    setCurrentPage(page);
+  };
+
+  // Default to Add Room panel when entering settings
+  useEffect(() => {
+    if (currentPage === 'settings' && !selectedRoom) {
+      setSelectedRoom({ __addMode: true });
+    }
+  }, [currentPage]);
+
   const renderContent = () => {
     switch (currentPage) {
       case 'dashboard':
@@ -815,7 +1211,15 @@ const AdminDashboard = ({ user, onLogout }) => {
       case 'users':
         return <UsersTable onRefresh={refreshKey} onEditUser={handleEditUser} />;
       case 'settings':
-        return <SystemSettings />;
+        return (
+          <SystemSettings
+            onSelectRoom={(room) => {
+              setSelectedRoom(room);
+            }}
+            selectedRoom={selectedRoom}
+            refreshKey={settingsRefreshKey}
+          />
+        );
       case 'bookings':
         return <BookingsPage />;
       case 'logs':
@@ -825,33 +1229,42 @@ const AdminDashboard = ({ user, onLogout }) => {
     }
   };
 
-  return (
-    <div className="layout">
-      <Sidebar
-        currentPage={currentPage}
-        onPageChange={setCurrentPage}
-        onLogout={onLogout}
-        user={user}
-      />
-
-      <main className="main">
-        <div id="main-content">
-          {/* Welcome Header */}
-          <div className="welcome-header">
-            <h1>Welcome, {user?.first_name} {user?.last_name}</h1>
-            <p className="user-role">{user?.role || 'Admin'}</p>
-          </div>
-
-          {renderContent()}
-        </div>
-      </main>
-
+  const renderRightPanel = () => {
+    if (currentPage === 'settings') {
+      return (
+        <RoomRightPanel
+          selectedRoom={selectedRoom}
+          onClose={() => setSelectedRoom({ __addMode: true })}
+          onAddRoom={handleAddRoom}
+        />
+      );
+    }
+    return (
       <RightPanel
         uuid={uuid}
         onFormSubmit={handleFormSubmit}
         editingUser={editingUser}
         onCancelEdit={handleCancelEdit}
       />
+    );
+  };
+
+  return (
+    <div className="layout">
+      <Sidebar
+        currentPage={currentPage}
+        onPageChange={handlePageChange}
+        onLogout={onLogout}
+        user={user}
+      />
+
+      <main className="main">
+        <div id="main-content">
+          {renderContent()}
+        </div>
+      </main>
+
+      {renderRightPanel()}
     </div>
   );
 };

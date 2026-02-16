@@ -199,7 +199,7 @@ th {
   background: #d88b8b;
   color: white;
   padding: 12px;
-  text-align: left;
+  text-align: center;
   font-size: 14px;
   font-weight: 600;
 }
@@ -208,6 +208,7 @@ td {
   padding: 12px;
   border-bottom: 1px solid #ddd;
   font-size: 14px;
+  text-align: center;
 }
 
 tr:last-child td {

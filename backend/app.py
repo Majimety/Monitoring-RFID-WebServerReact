@@ -15,9 +15,13 @@ import sqlite3
 import os
 import csv
 from uuid import uuid4
+from dotenv import load_dotenv
 
 from auth import auth_bp, init_auth_db
 from booking import booking_bp, init_booking_db
+
+# โหลด environment variables
+load_dotenv()
 
 # =====================
 # App Configuration
@@ -27,7 +31,10 @@ app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
-app.config["SECRET_KEY"] = "your-secret-key-change-this-in-production"
+# อ่านค่าจาก .env ถ้าไม่มีให้ใช้ค่า default
+app.config["SECRET_KEY"] = os.getenv(
+    "SECRET_KEY", "your-secret-key-change-this-in-production"
+)
 
 # Register auth routes
 app.register_blueprint(auth_bp)
@@ -36,8 +43,10 @@ app.register_blueprint(booking_bp)
 
 
 BASE_DIR = os.path.dirname(__file__)
-DB_PATH = os.path.abspath(os.path.join(BASE_DIR, "database.db"))
-PHOTO_DIR = "photos"
+DB_PATH = os.path.abspath(
+    os.path.join(BASE_DIR, os.getenv("DATABASE_PATH", "database.db"))
+)
+PHOTO_DIR = os.getenv("UPLOAD_FOLDER", "photos")
 
 latest_uuid = None
 
@@ -72,6 +81,44 @@ def init_db():
             )
             """
         )
+        # Rooms table — check if schema is correct first
+        cursor.execute("PRAGMA table_info(rooms)")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+
+        if not existing_cols:
+            # Table doesn't exist yet — create fresh
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rooms (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        elif "name" not in existing_cols:
+            # Old table exists without 'name' column — drop and recreate cleanly
+            cursor.execute("DROP TABLE rooms")
+            cursor.execute(
+                """
+                CREATE TABLE rooms (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        else:
+            # Table exists with 'name' column — just clean up empty/null rows
+            cursor.execute("DELETE FROM rooms WHERE name IS NULL OR name = ''")
+
+        # Seed default rooms if table is empty
+        cursor.execute("SELECT COUNT(*) FROM rooms")
+        if cursor.fetchone()[0] == 0:
+            for room_name in ["4101", "4102"]:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO rooms (name) VALUES (?)", (room_name,)
+                )
         conn.commit()
 
 
@@ -576,15 +623,100 @@ def table_route():
     return render_template("table.html", users=get_users())
 
 
+# =====================
+# Rooms API
+# =====================
+
+
+@app.route("/api/rooms", methods=["GET"])
+def get_rooms():
+    """Return list of all rooms."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, name FROM rooms ORDER BY id ASC")
+            rows = cursor.fetchall()
+            return jsonify(
+                {"rooms": [{"id": r["id"], "name": r["name"]} for r in rows]}
+            )
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/rooms", methods=["POST"])
+def add_room():
+    """Add a new room."""
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Room name is required"}), 400
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO rooms (name) VALUES (?)", (name,))
+            conn.commit()
+            new_id = cursor.lastrowid
+            return jsonify({"success": True, "room": {"id": new_id, "name": name}}), 201
+    except sqlite3.IntegrityError:
+        return jsonify({"error": f"Room '{name}' already exists"}), 409
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/rooms/<int:room_id>", methods=["PUT"])
+def update_room(room_id):
+    """Rename a room."""
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Room name is required"}), 400
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE rooms SET name = ? WHERE id = ?", (name, room_id))
+            if cursor.rowcount == 0:
+                return jsonify({"error": "Room not found"}), 404
+            conn.commit()
+            return jsonify({"success": True, "room": {"id": room_id, "name": name}})
+    except sqlite3.IntegrityError:
+        return jsonify({"error": f"Room '{name}' already exists"}), 409
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/rooms/<int:room_id>", methods=["DELETE"])
+def delete_room(room_id):
+    """Delete a room."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM rooms WHERE id = ?", (room_id,))
+            if cursor.rowcount == 0:
+                return jsonify({"error": "Room not found"}), 404
+            conn.commit()
+            return jsonify({"success": True})
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     init_db()
     init_auth_db()
     init_booking_db()  # Initialize booking database
 
+    # อ่านค่าจาก .env
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", 5000))
+    debug = os.getenv("FLASK_DEBUG", "True").lower() == "true"
+
+    print(f"\n Starting server on {host}:{port}")
+    print(f" Environment: {os.getenv('FLASK_ENV', 'development')}")
+    print(f" Debug mode: {debug}\n")
+
     socketio.run(
         app,
-        debug=True,
+        debug=debug,
         use_reloader=False,
-        host="0.0.0.0",
-        port=5000,
+        host=host,
+        port=port,
     )

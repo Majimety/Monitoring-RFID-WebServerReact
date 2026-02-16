@@ -7,14 +7,15 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
   const [showRequestDialog, setShowRequestDialog] = useState(false);
   const [showRoomByModal, setShowRoomByModal] = useState(false);
   const [showDayByModal, setShowDayByModal] = useState(false);
-  const [selectedRoom, setSelectedRoom] = useState('4101');
+  const [rooms, setRooms] = useState([]);
+  const [selectedRoom, setSelectedRoom] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedSlots, setSelectedSlots] = useState([]);
   const [roomSelections, setRoomSelections] = useState(null);
   const [daySelections, setDaySelections] = useState(null);
   const [rangeStartSlot, setRangeStartSlot] = useState(null);
-
-  const rooms = ['4101', '4210', '4303', '4309', '4410', 'คลับภาควิชา'];
+  const [currentDay, setCurrentDay] = useState(null);
+  const [currentRoom, setCurrentRoom] = useState(null);
   const days = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์', 'เสาร์', 'อาทิตย์'];
   const startHour = 8;
   const endHour = 20;
@@ -33,11 +34,24 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
   // Fetch booking requests
   useEffect(() => {
     fetchRequests();
-
-    // Set default date to today
+    fetchRooms();
     const today = new Date().toISOString().split('T')[0];
     setSelectedDate(today);
   }, []);
+
+  const fetchRooms = async () => {
+    try {
+      const res = await fetch('/api/rooms');
+      if (res.ok) {
+        const data = await res.json();
+        const roomNames = (data.rooms || []).map(r => r.name);
+        setRooms(roomNames);
+        if (roomNames.length > 0) setSelectedRoom(roomNames[0]);
+      }
+    } catch (e) {
+      console.error('Error fetching rooms:', e);
+    }
+  };
 
   const fetchRequests = async () => {
     try {
@@ -82,98 +96,90 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
     return (hh < 10 ? '0' + hh : '' + hh) + ':' + (mm < 10 ? '0' + mm : '' + mm);
   };
 
-  // Handle slot selection with range support
+  // Handle slot selection with improved logic
   const handleSlotClick = (slot) => {
     if (slot.day !== undefined) {
-      // Room By Modal - Range selection by day
+      // ========== ROOM BY MODAL ==========
+      // Check if switching to a different day
+      if (currentDay !== null && currentDay !== slot.day) {
+        // Reset when switching days
+        setSelectedSlots([]);
+        setRangeStartSlot(null);
+        setCurrentDay(slot.day);
+      } else if (currentDay === null) {
+        setCurrentDay(slot.day);
+      }
+
       if (rangeStartSlot === null) {
-        // First click - set start of range
+        // First click - start of range
         setRangeStartSlot(slot);
-        if (!isSlotSelected(slot.day, slot.time)) {
-          setSelectedSlots([...selectedSlots, slot]);
-        }
+        setSelectedSlots([slot]);
       } else {
-        // Second click - select range between start and current
+        // Second click - complete the range
         if (rangeStartSlot.day === slot.day) {
-          // Same day - select all times between
           const startTime = timeToMinutes(rangeStartSlot.time);
           const endTime = timeToMinutes(slot.time);
           const minTime = Math.min(startTime, endTime);
           const maxTime = Math.max(startTime, endTime);
 
-          // Get all times in range
+          // Select all slots in range
           const newSlots = [];
           timeSlots.forEach(time => {
             const minutes = timeToMinutes(time);
             if (minutes >= minTime && minutes <= maxTime) {
-              const slotObj = { day: slot.day, time, dayOffset: slot.dayOffset };
-              if (!selectedSlots.some(s => s.day === slotObj.day && s.time === slotObj.time)) {
-                newSlots.push(slotObj);
-              }
+              newSlots.push({ day: slot.day, time, dayOffset: slot.dayOffset });
             }
           });
 
-          setSelectedSlots([...selectedSlots, ...newSlots]);
+          setSelectedSlots(newSlots);
           setRangeStartSlot(null);
         } else {
-          // Different day - just click on individual slot
-          const exists = selectedSlots.find(s =>
-            s.day === slot.day && s.time === slot.time
-          );
-          if (exists) {
-            setSelectedSlots(selectedSlots.filter(s =>
-              !(s.day === slot.day && s.time === slot.time)
-            ));
-          } else {
-            setSelectedSlots([...selectedSlots, slot]);
-          }
-          setRangeStartSlot(null);
+          // Different day - reset and start new
+          setSelectedSlots([slot]);
+          setRangeStartSlot(slot);
+          setCurrentDay(slot.day);
         }
       }
     } else {
-      // Day By Modal - Range selection by room
+      // ========== DAY BY MODAL ==========
+      // Check if switching to a different room
+      if (currentRoom !== null && currentRoom !== slot.room) {
+        // Reset when switching rooms
+        setSelectedSlots([]);
+        setRangeStartSlot(null);
+        setCurrentRoom(slot.room);
+      } else if (currentRoom === null) {
+        setCurrentRoom(slot.room);
+      }
+
       if (rangeStartSlot === null) {
-        // First click - set start of range
+        // First click - start of range
         setRangeStartSlot(slot);
-        if (!isSlotSelected(null, slot.time, slot.room)) {
-          setSelectedSlots([...selectedSlots, slot]);
-        }
+        setSelectedSlots([slot]);
       } else {
-        // Second click - select range between start and current
+        // Second click - complete the range
         if (rangeStartSlot.room === slot.room) {
-          // Same room - select all times between
           const startTime = timeToMinutes(rangeStartSlot.time);
           const endTime = timeToMinutes(slot.time);
           const minTime = Math.min(startTime, endTime);
           const maxTime = Math.max(startTime, endTime);
 
-          // Get all times in range
+          // Select all slots in range
           const newSlots = [];
           timeSlots.forEach(time => {
             const minutes = timeToMinutes(time);
             if (minutes >= minTime && minutes <= maxTime) {
-              const slotObj = { room: slot.room, time };
-              if (!selectedSlots.some(s => s.room === slotObj.room && s.time === slotObj.time)) {
-                newSlots.push(slotObj);
-              }
+              newSlots.push({ room: slot.room, time });
             }
           });
 
-          setSelectedSlots([...selectedSlots, ...newSlots]);
+          setSelectedSlots(newSlots);
           setRangeStartSlot(null);
         } else {
-          // Different room - just click on individual slot
-          const exists = selectedSlots.find(s =>
-            s.room === slot.room && s.time === slot.time
-          );
-          if (exists) {
-            setSelectedSlots(selectedSlots.filter(s =>
-              !(s.room === slot.room && s.time === slot.time)
-            ));
-          } else {
-            setSelectedSlots([...selectedSlots, slot]);
-          }
-          setRangeStartSlot(null);
+          // Different room - reset and start new
+          setSelectedSlots([slot]);
+          setRangeStartSlot(slot);
+          setCurrentRoom(slot.room);
         }
       }
     }
@@ -366,18 +372,22 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
     setDaySelections(null);
     setSelectedSlots([]);
     setRangeStartSlot(null);
+    setCurrentDay(null);
+    setCurrentRoom(null);
   };
 
   const closeRoomByModal = () => {
     setShowRoomByModal(false);
     setSelectedSlots([]);
     setRangeStartSlot(null);
+    setCurrentDay(null);
   };
 
   const closeDayByModal = () => {
     setShowDayByModal(false);
     setSelectedSlots([]);
     setRangeStartSlot(null);
+    setCurrentRoom(null);
   };
 
   const getStatusBadge = (status) => {
@@ -416,6 +426,8 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
           setRoomSelections(null);
           setDaySelections(null);
           setRangeStartSlot(null);
+          setCurrentDay(null);
+          setCurrentRoom(null);
           setShowRequestDialog(true);
         }}>
           <i className="fas fa-plus"></i> ส่งคำขอใหม่
@@ -456,14 +468,14 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
           <table>
             <thead>
               <tr>
-                <th>ประเภทห้อง</th>
-                <th>วันที่จอง</th>
-                <th>เวลาเริ่ม</th>
-                <th>เวลาสิ้นสุด</th>
-                <th>รายละเอียดการจอง</th>
-                <th>สถานะ</th>
-                <th>ผู้ตรวจสอบ</th>
-                <th>หมายเหตุ</th>
+                <th style={{width: '120px'}}>ประเภทห้อง</th>
+                <th style={{width: '110px'}}>วันที่จอง</th>
+                <th style={{width: '90px'}}>เวลาเริ่ม</th>
+                <th style={{width: '100px'}}>เวลาสิ้นสุด</th>
+                <th style={{width: '250px'}}>รายละเอียดการจอง</th>
+                <th style={{width: '100px'}}>สถานะ</th>
+                <th style={{width: '150px'}}>ผู้ตรวจสอบ</th>
+                <th style={{width: '150px'}}>หมายเหตุ</th>
               </tr>
             </thead>
             <tbody>
@@ -486,7 +498,7 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
                           {badge.text}
                         </span>
                       </td>
-                      <td>{req.approved_by || '-'}</td>
+                      <td>{req.approved_by_name || '-'}</td>
                       <td>{req.remark || '-'}</td>
                     </tr>
                   );
@@ -508,6 +520,7 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
                 <div className="dialog-buttons">
                   <button className="dialog-btn" onClick={() => {
                     setSelectedSlots([]);
+                    setCurrentDay(null);
                     setShowRequestDialog(false);
                     setShowRoomByModal(true);
                   }}>
@@ -515,6 +528,7 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
                   </button>
                   <button className="dialog-btn" onClick={() => {
                     setSelectedSlots([]);
+                    setCurrentRoom(null);
                     setShowRequestDialog(false);
                     setShowDayByModal(true);
                   }}>

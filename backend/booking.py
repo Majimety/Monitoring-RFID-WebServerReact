@@ -248,17 +248,30 @@ def get_my_bookings(current_user):
             cursor.execute(
                 """
                 SELECT 
-                    id, room, date, start_time, end_time, detail, 
-                    status, approved_by, remark, created_at
-                FROM bookings
-                WHERE user_id = ?
-                ORDER BY created_at DESC
+                    b.id, b.room, b.date, b.start_time, b.end_time, b.detail, 
+                    b.status, b.approved_by, b.remark, b.created_at,
+                    approver.first_name AS approver_first_name,
+                    approver.last_name AS approver_last_name
+                FROM bookings b
+                LEFT JOIN admin_users approver ON b.approved_by = approver.email
+                WHERE b.user_id = ?
+                ORDER BY b.created_at DESC
                 """,
                 (current_user["user_id"],),
             )
 
             rows = cursor.fetchall()
-            bookings = [dict(row) for row in rows]
+            bookings = []
+
+            for row in rows:
+                booking = dict(row)
+                # ชื่อผู้อนุมัติ
+                booking["approved_by_name"] = (
+                    f"{row['approver_first_name']} {row['approver_last_name']}"
+                    if row["approver_first_name"]
+                    else row["approved_by"]
+                )
+                bookings.append(booking)
 
             return jsonify({"success": True, "bookings": bookings})
 
@@ -284,9 +297,13 @@ def get_all_bookings(current_user):
                     b.id, b.user_email, b.room, b.date, 
                     b.start_time, b.end_time, b.detail, 
                     b.status, b.approved_by, b.remark, b.created_at,
-                    u.first_name, u.last_name
+                    u.first_name AS requester_first_name, 
+                    u.last_name AS requester_last_name,
+                    approver.first_name AS approver_first_name,
+                    approver.last_name AS approver_last_name
                 FROM bookings b
                 LEFT JOIN admin_users u ON b.user_id = u.id
+                LEFT JOIN admin_users approver ON b.approved_by = approver.email
                 ORDER BY b.created_at DESC
                 """
             )
@@ -296,10 +313,17 @@ def get_all_bookings(current_user):
 
             for row in rows:
                 booking = dict(row)
+                # ชื่อผู้จอง
                 booking["user_name"] = (
-                    f"{row['first_name']} {row['last_name']}"
-                    if row["first_name"]
+                    f"{row['requester_first_name']} {row['requester_last_name']}"
+                    if row["requester_first_name"]
                     else row["user_email"]
+                )
+                # ชื่อผู้อนุมัติ
+                booking["approved_by_name"] = (
+                    f"{row['approver_first_name']} {row['approver_last_name']}"
+                    if row["approver_first_name"]
+                    else row["approved_by"]
                 )
                 bookings.append(booking)
 
