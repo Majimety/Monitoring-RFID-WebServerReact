@@ -1,0 +1,5 @@
+uuid,user_id,first_name,last_name,name,email,role
+C3228B12,6630406713,Testing,Name2,Testing Name2,test@kku.ac.th,student
+34EA7A87,6530401207,Jirayus,Thongyos,Jirayus Thongyos,jirayus.tho@kkumail.com,student
+54F2427E,12345,Chatchai,Khunboa,Chatchai Khunboa,chatchai@kku.ac.th,admin
+631FBF15,123,Admin,Admin,Admin Admin,Admin@kku.ac.th,admin

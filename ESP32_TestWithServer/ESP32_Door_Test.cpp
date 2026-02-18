@@ -13,8 +13,8 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);
 
 const char *ssid = "ADF";
 const char *password = "ADF12345";
-const char *apiIPAddress = "http://10.33.184.16:5000";
-const char *roomName = "4101";  // ชื่อห้องของ ESP32 ตัวนี้
+const char *apiIPAddress = "http://10.53.39.157:5001"; // แก้ไขทุครั้งที่เทส
+const char *roomName = "EN4101";  // ชื่อห้องของ ESP32 ตัวนี้
 unsigned long lastPoll = 0;
 const unsigned long pollInterval = 1000;
 

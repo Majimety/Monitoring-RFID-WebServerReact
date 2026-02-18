@@ -72,7 +72,7 @@ const Sidebar = ({ currentPage, onPageChange, onLogout, user }) => {
 
 
 // ==================== Right Panel Component ====================
-const RightPanel = ({ uuid, onFormSubmit, editingUser, onCancelEdit }) => {
+const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdit, onEditUser }) => {
   const [formData, setFormData] = useState({
     uuid: '',
     user_id: '',
@@ -83,13 +83,30 @@ const RightPanel = ({ uuid, onFormSubmit, editingUser, onCancelEdit }) => {
   });
   const [searchUserId, setSearchUserId] = useState('');
   const [message, setMessage] = useState({ text: '', type: '' });
+  const isMounted = React.useRef(true);
+  React.useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
+
+  // Track previous uuid to detect new card scan
+  const prevUuidRef = React.useRef('');
 
   // Update form when uuid changes (for adding new user)
   useEffect(() => {
     if (!editingUser) {
-      setFormData(prev => ({ ...prev, uuid: uuid || '' }));
+      const isNewCard = uuid && uuid !== prevUuidRef.current;
+      prevUuidRef.current = uuid || '';
+      if (isNewCard) {
+        // New card scanned → reset all fields for fresh entry
+        setFormData({ uuid: uuid, user_id: '', first_name: '', last_name: '', email: '', role: 'student' });
+      } else {
+        // uuid cleared (reset to idle) → just update uuid field
+        setFormData(prev => ({ ...prev, uuid: uuid || '' }));
+      }
+      setMessage({ text: '', type: '' });
     }
-  }, [uuid, editingUser]);
+  }, [uuid]);
 
   // Update form when editingUser changes
   useEffect(() => {
@@ -102,10 +119,9 @@ const RightPanel = ({ uuid, onFormSubmit, editingUser, onCancelEdit }) => {
         email: editingUser.email || '',
         role: editingUser.role || 'student'
       });
-    } else {
-      // Reset form when not editing
+    } else if (!uuid) {
       setFormData({
-        uuid: uuid || '',
+        uuid: '',
         user_id: '',
         first_name: '',
         last_name: '',
@@ -113,7 +129,7 @@ const RightPanel = ({ uuid, onFormSubmit, editingUser, onCancelEdit }) => {
         role: 'student'
       });
     }
-  }, [editingUser, uuid]);
+  }, [editingUser]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -124,83 +140,64 @@ const RightPanel = ({ uuid, onFormSubmit, editingUser, onCancelEdit }) => {
     e.preventDefault();
     setMessage({ text: '', type: '' });
 
-    try {
-      if (editingUser) {
-        // Update existing user
+    if (editingUser) {
+      try {
         const response = await fetch(`/api/update_user/${editingUser.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(formData)
         });
-
         const data = await response.json();
-        setMessage({
-          text: data.message,
-          type: data.success ? 'success' : 'error'
-        });
-
-        if (data.success) {
-          // Auto-hide success message after 2 seconds
+        if (response.ok && data.success) {
+          setMessage({ text: data.message || 'แก้ไขข้อมูล user สำเร็จ', type: 'success' });
           setTimeout(() => {
             setMessage({ text: '', type: '' });
             if (onCancelEdit) onCancelEdit();
             if (onFormSubmit) onFormSubmit();
           }, 2000);
+        } else {
+          setMessage({ text: data.message || 'เกิดข้อผิดพลาด', type: 'error' });
         }
-      } else {
-        // Add new user
+      } catch (error) {
+        setMessage({ text: 'เชื่อมต่อ server ไม่ได้', type: 'error' });
+      }
+    } else {
+      try {
         const response = await fetch('/api/add_user', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(formData)
         });
-
         const data = await response.json();
-        setMessage({
-          text: data.message,
-          type: data.success ? 'success' : 'error'
-        });
-
         if (data.success) {
-          setFormData({
-            uuid: '',
-            user_id: '',
-            first_name: '',
-            last_name: '',
-            email: '',
-            role: 'student'
-          });
-          // Auto-hide success message after 2 seconds
+          if (isMounted.current) setMessage({ text: 'Add ข้อมูล user สำเร็จ', type: 'success' });
           setTimeout(() => {
-            setMessage({ text: '', type: '' });
+            if (isMounted.current) {
+              setMessage({ text: '', type: '' });
+            }
             if (onFormSubmit) onFormSubmit();
           }, 2000);
+        } else {
+          if (isMounted.current) setMessage({ text: data.message || 'เกิดข้อผิดพลาด', type: 'error' });
         }
+      } catch (error) {
+        if (isMounted.current) setMessage({ text: 'เชื่อมต่อ server ไม่ได้', type: 'error' });
       }
-    } catch (error) {
-      setMessage({ text: 'Error saving user', type: 'error' });
     }
   };
 
   const handleSearch = async () => {
     if (!searchUserId.trim()) return;
-
     try {
       const response = await fetch('/api/users');
       const data = await response.json();
-      const user = data.users.find(
-        u => u.user_id === searchUserId.trim()
-      );
-
+      const user = data.users.find(u => u.user_id === searchUserId.trim());
       if (user) {
-        setFormData({
-          uuid: user.uuid || '',
-          user_id: user.user_id || '',
-          first_name: user.first_name || '',
-          last_name: user.last_name || '',
-          email: user.email || '',
-          role: user.role || 'student'
-        });
+        // Trigger edit mode directly — same as clicking Edit in the table
+        if (onEditUser) {
+          onEditUser(user);
+        }
+        setSearchUserId('');
       } else {
         alert('ไม่พบ User ID นี้');
       }
@@ -210,10 +207,7 @@ const RightPanel = ({ uuid, onFormSubmit, editingUser, onCancelEdit }) => {
   };
 
   const handleSearchKey = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleSearch();
-    }
+    if (e.key === 'Enter') { e.preventDefault(); handleSearch(); }
   };
 
   const handleCancel = () => {
@@ -221,8 +215,19 @@ const RightPanel = ({ uuid, onFormSubmit, editingUser, onCancelEdit }) => {
     if (onCancelEdit) onCancelEdit();
   };
 
+  // ---- Render States ----
+  // State 1: Editing existing user (from table edit button)
+  const isEditing = !!editingUser;
+  // State 2: UUID scanned & already registered
+  const isRegistered = uuid && uuidUserInfo;
+  // State 3: UUID scanned & NOT registered yet → show add form
+  const isNewScan = uuid && !uuidUserInfo && !editingUser;
+  // State 4: No UUID scanned, not editing
+  const isIdle = !uuid && !editingUser;
+
   return (
     <aside className="right-panel">
+      {/* Search box — always visible */}
       <div className="search-box">
         <i className="fa fa-search"></i>
         <input
@@ -234,86 +239,102 @@ const RightPanel = ({ uuid, onFormSubmit, editingUser, onCancelEdit }) => {
         />
       </div>
 
-      <h3>{editingUser ? 'Edit User' : 'Add User'}</h3>
-
-      <form onSubmit={handleSubmit}>
-        <input
-          type="text"
-          name="uuid"
-          placeholder="RFID"
-          value={formData.uuid}
-          readOnly
-          required
-        />
-        <input
-          type="text"
-          name="user_id"
-          placeholder="User ID"
-          value={formData.user_id}
-          onChange={handleInputChange}
-          required
-        />
-        <input
-          type="text"
-          name="first_name"
-          placeholder="First Name"
-          value={formData.first_name}
-          onChange={handleInputChange}
-          required
-        />
-        <input
-          type="text"
-          name="last_name"
-          placeholder="Last Name"
-          value={formData.last_name}
-          onChange={handleInputChange}
-          required
-        />
-        <input
-          type="email"
-          name="email"
-          placeholder="Email"
-          value={formData.email}
-          onChange={handleInputChange}
-          required
-        />
-
-        {/* Custom Role Selector */}
-        <div className="role-selector">
-          <label>Role:</label>
-          <div className="role-options">
-            <button
-              type="button"
-              className={`role-btn ${formData.role === 'student' ? 'active' : ''}`}
-              onClick={() => setFormData(prev => ({ ...prev, role: 'student' }))}
-            >
-              <i className="fa-solid fa-user-graduate"></i>
-              <span>Student</span>
-            </button>
-            <button
-              type="button"
-              className={`role-btn ${formData.role === 'admin' ? 'active' : ''}`}
-              onClick={() => setFormData(prev => ({ ...prev, role: 'admin' }))}
-            >
-              <i className="fa-solid fa-user-shield"></i>
-              <span>Admin</span>
-            </button>
-          </div>
+      {/* ---- IDLE: waiting for RFID scan ---- */}
+      {isIdle && (
+        <div style={{ textAlign: 'center', padding: '30px 10px', color: '#aaa' }}>
+          <i className="fa-solid fa-credit-card" style={{ fontSize: 48, marginBottom: 14, color: '#d88b8b', opacity: 0.5 }}></i>
+          <p style={{ fontSize: 14, fontWeight: 500 }}>รอสแกนบัตร RFID</p>
+          <p style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>แตะบัตรที่เครื่องอ่าน RFID<br />เพื่อเพิ่มผู้ใช้ใหม่</p>
         </div>
+      )}
 
-        {editingUser ? (
-          <>
+      {/* ---- REGISTERED: UUID already in system ---- */}
+      {isRegistered && !isEditing && (
+        <div>
+          <h3 style={{ marginBottom: 14, color: '#333' }}>บัตรนี้ลงทะเบียนแล้ว</h3>
+          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <i className="fa-solid fa-circle-check" style={{ color: '#22c55e', fontSize: 18 }}></i>
+              <span style={{ fontWeight: 600, color: '#166534', fontSize: 14 }}>พบข้อมูลผู้ใช้</span>
+            </div>
+            <div style={{ fontSize: 13, color: '#333', lineHeight: 1.8 }}>
+              <div><b>RFID:</b> <span style={{ fontFamily: 'monospace', background: '#e5e7eb', padding: '1px 6px', borderRadius: 4 }}>{uuidUserInfo.uuid}</span></div>
+              <div><b>User ID:</b> {uuidUserInfo.user_id}</div>
+              <div><b>ชื่อ:</b> {uuidUserInfo.first_name} {uuidUserInfo.last_name}</div>
+              <div><b>Email:</b> {uuidUserInfo.email}</div>
+              <div><b>Role:</b> <span style={{ textTransform: 'capitalize' }}>{uuidUserInfo.role}</span></div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => { if (onFormSubmit) onFormSubmit(); }}
+            style={{
+              width: '100%', padding: '10px', borderRadius: 8,
+              background: '#d88b8b', color: 'white', border: 'none',
+              fontSize: 14, fontWeight: 600, cursor: 'pointer'
+            }}
+          >
+            ตกลง
+          </button>
+        </div>
+      )}
+
+      {/* ---- NEW SCAN: UUID not registered → show add form ---- */}
+      {isNewScan && (
+        <div>
+          <h3 style={{ marginBottom: 6, color: '#333' }}>Add User</h3>
+          <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 6, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#92400e' }}>
+            <i className="fa-solid fa-circle-info" style={{ marginRight: 6 }}></i>
+            บัตรใหม่ — กรอกข้อมูลเพื่อลงทะเบียน
+          </div>
+          <form onSubmit={handleSubmit}>
+            <input type="text" name="uuid" placeholder="RFID" value={formData.uuid} readOnly required style={{ background: '#f5f5f5' }} />
+            <input type="text" name="user_id" placeholder="User ID" value={formData.user_id} onChange={handleInputChange} required />
+            <input type="text" name="first_name" placeholder="First Name" value={formData.first_name} onChange={handleInputChange} required />
+            <input type="text" name="last_name" placeholder="Last Name" value={formData.last_name} onChange={handleInputChange} required />
+            <input type="email" name="email" placeholder="Email" value={formData.email} onChange={handleInputChange} required />
+            <div className="role-selector">
+              <label>Role:</label>
+              <div className="role-options">
+                <button type="button" className={`role-btn ${formData.role === 'student' ? 'active' : ''}`} onClick={() => setFormData(prev => ({ ...prev, role: 'student' }))}>
+                  <i className="fa-solid fa-user-graduate"></i><span>Student</span>
+                </button>
+                <button type="button" className={`role-btn ${formData.role === 'admin' ? 'active' : ''}`} onClick={() => setFormData(prev => ({ ...prev, role: 'admin' }))}>
+                  <i className="fa-solid fa-user-shield"></i><span>Admin</span>
+                </button>
+              </div>
+            </div>
+            <button type="submit">Add RFID</button>
+          </form>
+          {message.text && <div className={`message ${message.type}`}>{message.text}</div>}
+        </div>
+      )}
+
+      {/* ---- EDITING: from table edit button ---- */}
+      {isEditing && (
+        <div>
+          <h3 style={{ marginBottom: 14, color: '#333' }}>Edit User</h3>
+          <form onSubmit={handleSubmit}>
+            <input type="text" name="uuid" placeholder="RFID" value={formData.uuid} readOnly required style={{ background: '#f5f5f5' }} />
+            <input type="text" name="user_id" placeholder="User ID" value={formData.user_id} onChange={handleInputChange} required />
+            <input type="text" name="first_name" placeholder="First Name" value={formData.first_name} onChange={handleInputChange} required />
+            <input type="text" name="last_name" placeholder="Last Name" value={formData.last_name} onChange={handleInputChange} required />
+            <input type="email" name="email" placeholder="Email" value={formData.email} onChange={handleInputChange} required />
+            <div className="role-selector">
+              <label>Role:</label>
+              <div className="role-options">
+                <button type="button" className={`role-btn ${formData.role === 'student' ? 'active' : ''}`} onClick={() => setFormData(prev => ({ ...prev, role: 'student' }))}>
+                  <i className="fa-solid fa-user-graduate"></i><span>Student</span>
+                </button>
+                <button type="button" className={`role-btn ${formData.role === 'admin' ? 'active' : ''}`} onClick={() => setFormData(prev => ({ ...prev, role: 'admin' }))}>
+                  <i className="fa-solid fa-user-shield"></i><span>Admin</span>
+                </button>
+              </div>
+            </div>
             <button type="submit">Update User</button>
-            <button type="button" onClick={handleCancel}>Cancel</button>
-          </>
-        ) : (
-          <button type="submit">Add RFID</button>
-        )}
-      </form>
-
-      {message.text && (
-        <div className={`message ${message.type}`}>
-          {message.text}
+            <button type="button" onClick={handleCancel} style={{ marginTop: 8 }}>Cancel</button>
+          </form>
+          {message.text && <div className={`message ${message.type}`}>{message.text}</div>}
         </div>
       )}
     </aside>
@@ -346,7 +367,7 @@ const DashboardContent = () => {
       if (bookingResponse.ok) {
         const bookingData = await bookingResponse.json();
         const allBookings = bookingData.bookings || [];
-        
+
         // Filter only pending bookings for dashboard
         const pendingBookings = allBookings.filter(b => b.status === 'pending');
         setBookings(pendingBookings.slice(0, 10)); // Show only first 10
@@ -380,7 +401,7 @@ const DashboardContent = () => {
       });
 
       const data = await response.json();
-      
+
       if (response.ok) {
         alert('อนุมัติการจองสำเร็จ');
         fetchDashboardData(); // Refresh data
@@ -408,7 +429,7 @@ const DashboardContent = () => {
       });
 
       const data = await response.json();
-      
+
       if (response.ok) {
         alert('ปฏิเสธการจองสำเร็จ');
         fetchDashboardData(); // Refresh data
@@ -471,7 +492,7 @@ const DashboardContent = () => {
             <tbody>
               {bookings.length === 0 ? (
                 <tr>
-                  <td colSpan="6" style={{textAlign: 'center', padding: '20px'}}>
+                  <td colSpan="6" style={{ textAlign: 'center', padding: '20px' }}>
                     ไม่มีคำขอจองใหม่
                   </td>
                 </tr>
@@ -939,11 +960,11 @@ const RoomRightPanel = ({ selectedRoom, onClose, onAddRoom }) => {
         <h3>Add New Room</h3>
         <input
           type="text"
-          placeholder="Room Number (EN 1234)"
+          placeholder="Room Number (EN1234)"
           value={roomName}
           onChange={e => setRoomName(e.target.value)}
           onKeyDown={e => {
-            if (e.key === 'Enter' && roomName.trim()) { 
+            if (e.key === 'Enter' && roomName.trim()) {
               onAddRoom(roomName);
             }
           }}
@@ -1019,13 +1040,13 @@ const RoomRightPanel = ({ selectedRoom, onClose, onAddRoom }) => {
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ 
-                width: 40, 
-                height: 40, 
-                background: 'linear-gradient(135deg, #d28b8b 0%, #c77676 100%)', 
-                borderRadius: 10, 
-                display: 'flex', 
-                alignItems: 'center', 
+              <div style={{
+                width: 40,
+                height: 40,
+                background: 'linear-gradient(135deg, #d28b8b 0%, #c77676 100%)',
+                borderRadius: 10,
+                display: 'flex',
+                alignItems: 'center',
                 justifyContent: 'center',
                 boxShadow: '0 2px 8px rgba(210, 139, 139, 0.3)'
               }}>
@@ -1039,16 +1060,16 @@ const RoomRightPanel = ({ selectedRoom, onClose, onAddRoom }) => {
             <button
               title="Rename Room"
               onClick={() => { setRenameValue(selectedRoom.name); setIsRenaming(true); }}
-              style={{ 
+              style={{
                 background: 'white',
-                border: '1px solid #e0e0e0', 
-                borderRadius: 8, 
+                border: '1px solid #e0e0e0',
+                borderRadius: 8,
                 width: 36,
                 height: 36,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                cursor: 'pointer', 
+                cursor: 'pointer',
                 color: '#666',
                 transition: 'all 0.2s',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
@@ -1133,17 +1154,24 @@ const RoomRightPanel = ({ selectedRoom, onClose, onAddRoom }) => {
 const AdminDashboard = ({ user, onLogout }) => {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [uuid, setUuid] = useState('');
+  const [uuidUserInfo, setUuidUserInfo] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [editingUser, setEditingUser] = useState(null);
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [settingsRefreshKey, setSettingsRefreshKey] = useState(0);
 
   useEffect(() => {
-    const socket = io({ transports: ['websocket', 'polling'] });
+    const socket = io('http://localhost:5000', { transports: ['websocket', 'polling'] });
     fetch('/api/reset_uuid', { method: 'POST' }).catch(err => {
       console.error('Error resetting UUID:', err);
     });
     socket.on('uuid_update', (data) => {
+      console.log('uuid_update received:', data);
+      if (data.user_id) {
+        setUuidUserInfo({ uuid: data.uuid, user_id: data.user_id, first_name: data.first_name, last_name: data.last_name, email: data.email, role: data.role });
+      } else {
+        setUuidUserInfo(null);
+      }
       setUuid(data.uuid || '');
     });
     return () => { socket.disconnect(); };
@@ -1151,6 +1179,16 @@ const AdminDashboard = ({ user, onLogout }) => {
 
   const handleFormSubmit = () => {
     setRefreshKey(prev => prev + 1);
+    // Reset uuid via API — the socket uuid_update event will clear uuid state naturally
+    fetch('/api/reset_uuid', { method: 'POST' })
+      .then(() => {
+        setUuid('');
+        setUuidUserInfo(null);
+      })
+      .catch(() => {
+        setUuid('');
+        setUuidUserInfo(null);
+      });
   };
 
   const handleEditUser = (user) => {
@@ -1242,9 +1280,11 @@ const AdminDashboard = ({ user, onLogout }) => {
     return (
       <RightPanel
         uuid={uuid}
+        uuidUserInfo={uuidUserInfo}
         onFormSubmit={handleFormSubmit}
         editingUser={editingUser}
         onCancelEdit={handleCancelEdit}
+        onEditUser={handleEditUser}
       />
     );
   };

@@ -10,7 +10,7 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);
 
 const char *ssid = "ADF";
 const char *password = "ADF12345";
-const char *apiIPAddress = "http://10.33.184.16:5000";
+const char *apiIPAddress = "http://10.123.96.16:5000"; // แก้ไขทุครั้งที่เทส
 
 void sendUUIDToAPI(const String &uuid)
 {

@@ -237,36 +237,40 @@ def add_user(uuid, user_id, first_name, last_name, email, role="student"):
             conn.commit()
             user_id_created = cursor.lastrowid
 
-        csv_path = os.path.abspath(
-            os.path.join(BASE_DIR, "..", "database", "users.csv")
-        )
-        file_exists = os.path.isfile(csv_path)
-
-        with open(csv_path, "a", newline="", encoding="utf-8") as file:
-            writer = csv.writer(file)
-            if not file_exists:
+        # Try to write CSV (optional - don't fail if directory missing)
+        try:
+            csv_path = os.path.abspath(
+                os.path.join(BASE_DIR, "..", "database", "users.csv")
+            )
+            os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+            file_exists = os.path.isfile(csv_path)
+            with open(csv_path, "a", newline="", encoding="utf-8") as file:
+                writer = csv.writer(file)
+                if not file_exists:
+                    writer.writerow(
+                        [
+                            "uuid",
+                            "user_id",
+                            "first_name",
+                            "last_name",
+                            "name",
+                            "email",
+                            "role",
+                        ]
+                    )
                 writer.writerow(
                     [
-                        "uuid",
-                        "user_id",
-                        "first_name",
-                        "last_name",
-                        "name",
-                        "email",
-                        "role",
+                        uuid,
+                        user_id,
+                        first_name,
+                        last_name,
+                        f"{first_name} {last_name}",
+                        email,
+                        role,
                     ]
                 )
-            writer.writerow(
-                [
-                    uuid,
-                    user_id,
-                    first_name,
-                    last_name,
-                    f"{first_name} {last_name}",
-                    email,
-                    role,
-                ]
-            )
+        except Exception:
+            pass  # CSV write failure should not block user creation
 
         return {
             "success": True,
@@ -306,7 +310,8 @@ def check_is_user_id_exist(user_id):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT 1 FROM users_reg WHERE user_id = ? LIMIT 1", (user_id,)
+                "SELECT 1 FROM users_reg WHERE user_id = ? AND is_deleted = 0 LIMIT 1",
+                (user_id,),
             )
             return (
                 {"success": True, "message": "userId นี้มีอยู่แล้ว"}
@@ -324,7 +329,7 @@ def check_is_user_id_exist_except_id(user_id, current_id):
             cursor.execute(
                 """
                 SELECT 1 FROM users_reg
-                WHERE user_id = ? AND id != ? LIMIT 1
+                WHERE user_id = ? AND id != ? AND is_deleted = 0 LIMIT 1
                 """,
                 (user_id, current_id),
             )
@@ -408,6 +413,7 @@ def get_uuid():
             "first_name": user["first_name"] if user else "",
             "last_name": user["last_name"] if user else "",
             "email": user["email"] if user else "",
+            "role": user["role"] if user else "",
         },
     )
 
@@ -488,18 +494,18 @@ def add_user_route():
         role = request.form.get("role", "student").strip()
 
     if not all([uuid, user_id, first_name, last_name, email]):
-        return jsonify({"success": False, "message": "กรุณากรอกข้อมูลให้ครบถ้วน"}), 400
+        return jsonify({"success": False, "message": "กรุณากรอกข้อมูลให้ครบถ้วน"})
 
     if check_is_user_id_exist(user_id)["success"]:
-        return jsonify({"success": False, "message": "userId นี้มีอยู่แล้ว"}), 409
+        return jsonify({"success": False, "message": "userId นี้มีอยู่แล้ว"})
 
     result = add_user(uuid, user_id, first_name, last_name, email, role)
 
     if result["success"]:
         latest_uuid = None
-        return jsonify(result), 201
+        return jsonify(result), 200
 
-    return jsonify(result), 409
+    return jsonify(result), 200
 
 
 @app.route("/api/users", methods=["GET"])
@@ -588,7 +594,7 @@ def update_user_route(id):
         role = request.form.get("role", "student")
 
     if check_is_user_id_exist_except_id(user_id, id)["success"]:
-        return jsonify({"success": False, "message": "userId นี้มีอยู่แล้ว"}), 409
+        return jsonify({"success": False, "message": "userId นี้มีอยู่แล้ว"})
 
     try:
         with get_db_connection() as conn:
