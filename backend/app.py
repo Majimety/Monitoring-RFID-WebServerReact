@@ -124,6 +124,95 @@ def init_db():
 
 
 # =====================
+# CSV Helpers
+# =====================
+CSV_DIR = os.path.abspath(os.path.join(BASE_DIR, "database"))
+USERS_CSV = os.path.join(CSV_DIR, "users.csv")
+ADMINS_CSV = os.path.join(CSV_DIR, "admins.csv")
+CSV_HEADER = ["uuid", "user_id", "first_name", "last_name", "name", "email", "role"]
+
+
+def _ensure_csv_dir():
+    os.makedirs(CSV_DIR, exist_ok=True)
+
+
+def rebuild_csv_from_db():
+    """
+    เขียน users.csv และ admins.csv ใหม่ทั้งหมดจากข้อมูลใน DB
+    เรียกใช้หลังจาก update หรือ delete เพื่อให้ CSV ตรงกับ DB เสมอ
+    """
+    _ensure_csv_dir()
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT uuid, user_id, first_name, last_name,
+                       first_name || ' ' || last_name AS name, email, role
+                FROM users_reg
+                WHERE is_deleted = 0
+                ORDER BY id
+                """
+            )
+            all_users = cursor.fetchall()
+
+        # เขียน users.csv (ทุก role)
+        with open(USERS_CSV, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(CSV_HEADER)
+            for u in all_users:
+                writer.writerow([u[0], u[1], u[2], u[3], u[4], u[5], u[6]])
+
+        # เขียน admins.csv (เฉพาะ role == 'admin')
+        admin_users = [u for u in all_users if u[6] == "admin"]
+        with open(ADMINS_CSV, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(CSV_HEADER)
+            for u in admin_users:
+                writer.writerow([u[0], u[1], u[2], u[3], u[4], u[5], u[6]])
+
+    except Exception as e:
+        print(f"[CSV] rebuild_csv_from_db error: {e}")
+
+
+def append_user_to_csv(uuid, user_id, first_name, last_name, email, role):
+    """
+    เพิ่มแถว user ใหม่ต่อท้าย users.csv
+    ถ้า role == 'admin' ให้เพิ่มใน admins.csv ด้วย
+    """
+    _ensure_csv_dir()
+    row = [
+        uuid,
+        user_id,
+        first_name,
+        last_name,
+        f"{first_name} {last_name}",
+        email,
+        role,
+    ]
+    try:
+        # users.csv — เพิ่มทุก role
+        file_exists = os.path.isfile(USERS_CSV)
+        with open(USERS_CSV, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(CSV_HEADER)
+            writer.writerow(row)
+
+        # admins.csv — เพิ่มเฉพาะ admin
+        if role == "admin":
+            file_exists = os.path.isfile(ADMINS_CSV)
+            with open(ADMINS_CSV, "a", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                if not file_exists:
+                    writer.writerow(CSV_HEADER)
+                writer.writerow(row)
+
+    except Exception as e:
+        print(f"[CSV] append_user_to_csv error: {e}")
+
+
+# =====================
 # Query Functions
 # =====================
 def get_users():
@@ -238,36 +327,9 @@ def add_user(uuid, user_id, first_name, last_name, email, role="student"):
             conn.commit()
             user_id_created = cursor.lastrowid
 
-        # Try to write CSV (optional - don't fail if directory missing)
+        # เขียน CSV (optional - don't fail if error)
         try:
-            csv_path = os.path.abspath(os.path.join(BASE_DIR, "database", "users.csv"))
-            os.makedirs(os.path.dirname(csv_path), exist_ok=True)
-            file_exists = os.path.isfile(csv_path)
-            with open(csv_path, "a", newline="", encoding="utf-8") as file:
-                writer = csv.writer(file)
-                if not file_exists:
-                    writer.writerow(
-                        [
-                            "uuid",
-                            "user_id",
-                            "first_name",
-                            "last_name",
-                            "name",
-                            "email",
-                            "role",
-                        ]
-                    )
-                writer.writerow(
-                    [
-                        uuid,
-                        user_id,
-                        first_name,
-                        last_name,
-                        f"{first_name} {last_name}",
-                        email,
-                        role,
-                    ]
-                )
+            append_user_to_csv(uuid, user_id, first_name, last_name, email, role)
         except Exception:
             pass  # CSV write failure should not block user creation
 
@@ -294,11 +356,13 @@ def delete_user(id):
                 (id,),
             )
             conn.commit()
+            affected = cursor.rowcount
 
-            if cursor.rowcount > 0:
-                return {"success": True, "message": "ลบผู้ใช้สำเร็จ"}
+        if affected > 0:
+            rebuild_csv_from_db()
+            return {"success": True, "message": "ลบผู้ใช้สำเร็จ"}
 
-            return {"success": False, "message": "ไม่สามารถลบผู้ใช้ได้"}
+        return {"success": False, "message": "ไม่สามารถลบผู้ใช้ได้"}
 
     except sqlite3.Error as e:
         return {"success": False, "message": f"เกิดข้อผิดพลาด: {str(e)}"}
@@ -621,6 +685,7 @@ def update_user_route(id):
             )
             conn.commit()
 
+        rebuild_csv_from_db()
         return jsonify({"success": True, "message": "แก้ไขข้อมูล user สำเร็จ"})
 
     except sqlite3.Error as e:
