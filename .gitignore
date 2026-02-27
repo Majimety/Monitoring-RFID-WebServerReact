@@ -64,6 +64,10 @@ instance/
 *.sql
 *.dump
 
+# Ignore CSV files
+*.csv
+backend/database/*.csv
+
 # ==================== Node.js / React ====================
 # Dependencies
 node_modules/

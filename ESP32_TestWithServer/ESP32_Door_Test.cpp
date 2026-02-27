@@ -6,14 +6,14 @@
 #define SS_PIN 5
 #define RST_PIN 21
 #define RELAY_PIN 26
-#define DOOR_OPEN HIGH
-#define DOOR_CLOSE LOW
+#define DOOR_OPEN LOW
+#define DOOR_CLOSE HIGH
 
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
 const char *ssid = "ADF";
 const char *password = "ADF12345";
-const char *apiIPAddress = "http://10.53.39.157:5001"; // แก้ไขทุครั้งที่เทส
+const char *apiIPAddress = "http://10.53.39.157:5000"; // แก้ไขทุครั้งที่เทส
 const char *roomName = "EN4101";  // ชื่อห้องของ ESP32 ตัวนี้
 unsigned long lastPoll = 0;
 const unsigned long pollInterval = 1000;
@@ -44,7 +44,7 @@ void sendUUIDToAPI(const String &uuid)
     Serial.println(response);
 
     // ตรวจสอบ status
-    if (response.indexOf("\"status\":\"ok\"") != -1)
+    if (response.indexOf("\"status\": \"ok\"") != -1)
     {
       Serial.println("UUID recognized. Opening door...");
       openDoor();
@@ -74,12 +74,12 @@ void checkDoorCommand()
   {
     String payload = http.getString();
 
-    if (payload.indexOf("\"command\":\"open\"") != -1)
+    if (payload.indexOf("\"command\": \"open\"") != -1)
     {
       Serial.println("Web command: OPEN");
       openDoor();
     }
-    else if (payload.indexOf("\"command\":\"close\"") != -1)
+    else if (payload.indexOf("\"command\": \"close\"") != -1)
     {
       Serial.println("Web command: CLOSE");
       digitalWrite(RELAY_PIN, DOOR_CLOSE);

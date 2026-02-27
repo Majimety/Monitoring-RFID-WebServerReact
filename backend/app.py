@@ -15,6 +15,7 @@ import sqlite3
 import os
 import csv
 from uuid import uuid4
+from datetime import datetime
 from dotenv import load_dotenv
 
 from auth import auth_bp, init_auth_db
@@ -239,9 +240,7 @@ def add_user(uuid, user_id, first_name, last_name, email, role="student"):
 
         # Try to write CSV (optional - don't fail if directory missing)
         try:
-            csv_path = os.path.abspath(
-                os.path.join(BASE_DIR, "..", "database", "users.csv")
-            )
+            csv_path = os.path.abspath(os.path.join(BASE_DIR, "database", "users.csv"))
             os.makedirs(os.path.dirname(csv_path), exist_ok=True)
             file_exists = os.path.isfile(csv_path)
             with open(csv_path, "a", newline="", encoding="utf-8") as file:
@@ -346,8 +345,9 @@ def check_is_user_id_exist_except_id(user_id, current_id):
 # Routes
 # =====================
 
-# global state
-door_command = "idle"  # idle | open | close
+# global state — per-room door commands and last seen timestamps
+room_commands = {}  # { room_name: "open" | "close" | "idle" }
+room_last_seen = {}  # { room_name: datetime }
 
 
 @app.route("/admin")
@@ -377,23 +377,26 @@ def system_settings_route():
 
 @app.route("/api/door/open", methods=["POST"])
 def door_open():
-    global door_command
-    door_command = "open"
+    data = request.get_json(silent=True) or {}
+    room = data.get("room", "")
+    room_commands[room] = "open"
     return jsonify({"success": True, "message": "Door open command sent"})
 
 
 @app.route("/api/door/close", methods=["POST"])
 def door_close():
-    global door_command
-    door_command = "close"
+    data = request.get_json(silent=True) or {}
+    room = data.get("room", "")
+    room_commands[room] = "close"
     return jsonify({"success": True, "message": "Door close command sent"})
 
 
 @app.route("/api/door/command", methods=["GET"])
 def get_door_command():
-    global door_command
-    cmd = door_command
-    door_command = "idle"  # reset หลังอ่าน
+    room = request.args.get("room", "")
+    if room:
+        room_last_seen[room] = datetime.utcnow()
+    cmd = room_commands.pop(room, "idle")
     return jsonify({"command": cmd})
 
 
@@ -703,6 +706,20 @@ def delete_room(room_id):
             return jsonify({"success": True})
     except sqlite3.Error as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/door/status", methods=["GET"])
+def get_door_status():
+    room = request.args.get("room", "")
+    last = room_last_seen.get(room)
+    if last:
+        seconds_ago = (datetime.utcnow() - last).total_seconds()
+        is_online = seconds_ago < 5  # ถ้า ESP32 poll ทุก 1 วิ ให้ tolerance 5 วิ
+    else:
+        is_online = False
+    return jsonify(
+        {"door_status": "LOCKED", "door_online": is_online, "rfid_online": is_online}
+    )
 
 
 if __name__ == "__main__":
