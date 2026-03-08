@@ -74,7 +74,8 @@ bool sendUUIDToAPI(const String &uuid)
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(3000); // timeout 3 วิ ไม่รอนาน
 
-  String payload = "{\"uuid\":\"" + uuid + "\"}";
+  // ส่ง room ไปด้วยเพื่อให้ backend บันทึก Access Log ได้ถูกห้อง
+  String payload = "{\"uuid\":\"" + uuid + "\",\"room\":\"" + String(roomName) + "\"}";
   int httpResponseCode = http.POST(payload);
 
   if (httpResponseCode > 0)

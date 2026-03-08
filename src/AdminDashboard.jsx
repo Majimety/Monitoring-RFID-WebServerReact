@@ -4,7 +4,7 @@ import './AdminDashboard.css';
 import BookingsPage from './Bookingspage';
 
 // ==================== Sidebar Component ====================
-const Sidebar = ({ currentPage, onPageChange, onLogout, user }) => {
+const Sidebar = ({ currentPage, onPageChange, onLogout, user, sidebarOpen }) => {
   const menuItems = [
     { id: 'dashboard', icon: 'fa-house', title: 'Dashboard' },
     { id: 'users', icon: 'fa-id-card', title: 'RFID Users' },
@@ -14,7 +14,7 @@ const Sidebar = ({ currentPage, onPageChange, onLogout, user }) => {
   ];
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar sidebar-drawer${sidebarOpen ? " open" : ""}`}>
       <div className="logo-box">
         <img
           src="/logo/enkku_logo.png"
@@ -72,7 +72,7 @@ const Sidebar = ({ currentPage, onPageChange, onLogout, user }) => {
 
 
 // ==================== Right Panel Component ====================
-const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdit, onEditUser }) => {
+const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdit, onEditUser, adminUser }) => {
   const [formData, setFormData] = useState({
     uuid: '',
     user_id: '',
@@ -227,16 +227,21 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
 
   return (
     <aside className="right-panel">
-      {/* Search box — always visible */}
-      <div className="search-box">
-        <i className="fa fa-search"></i>
-        <input
-          type="text"
-          placeholder="Search User ID"
-          value={searchUserId}
-          onChange={(e) => setSearchUserId(e.target.value)}
-          onKeyDown={handleSearchKey}
-        />
+      {/* Search box + Bell row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '-10px' }}>
+        <div className="search-box" style={{ flex: 1, marginBottom: 0 }}>
+          <i className="fa fa-search"></i>
+          <input
+            type="text"
+            placeholder="Search User ID"
+            value={searchUserId}
+            onChange={(e) => setSearchUserId(e.target.value)}
+            onKeyDown={handleSearchKey}
+          />
+        </div>
+        <div style={{ flexShrink: 0 }}>
+          <NotificationBell userEmail={adminUser?.email} />
+        </div>
       </div>
 
       {/* ---- IDLE: waiting for RFID scan ---- */}
@@ -341,6 +346,113 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
   );
 };
 
+// ==================== Remark Modal Component (Bug #7 Fix: แทน prompt/alert) ====================
+const RemarkModal = ({ isOpen, mode, onConfirm, onCancel }) => {
+  const [remark, setRemark] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (isOpen) setRemark('');
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const isApprove = mode === 'approve';
+
+  const handleConfirm = async () => {
+    if (!isApprove && !remark.trim()) return; // reject ต้องมีเหตุผล
+    setLoading(true);
+    await onConfirm(remark.trim());
+    setLoading(false);
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 2000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center'
+    }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)' }} onClick={onCancel} />
+      <div style={{
+        position: 'relative', background: '#fff', borderRadius: '12px',
+        padding: '28px', width: '400px', maxWidth: '90vw',
+        boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
+      }}>
+        <h3 style={{ margin: '0 0 6px', color: '#333', fontSize: '18px' }}>
+          {isApprove ? '✅ อนุมัติการจอง' : '❌ ปฏิเสธการจอง'}
+        </h3>
+        <p style={{ margin: '0 0 16px', color: '#666', fontSize: '14px' }}>
+          {isApprove ? 'ระบุหมายเหตุ (ถ้ามี)' : 'กรุณาระบุเหตุผลในการปฏิเสธ'}
+        </p>
+        <textarea
+          autoFocus
+          value={remark}
+          onChange={e => setRemark(e.target.value)}
+          placeholder={isApprove ? 'หมายเหตุ (ไม่บังคับ)' : 'เหตุผลในการปฏิเสธ *'}
+          rows={3}
+          style={{
+            width: '100%', padding: '10px', border: '1px solid #ddd',
+            borderRadius: '8px', fontSize: '14px', resize: 'vertical',
+            fontFamily: 'inherit', boxSizing: 'border-box',
+            borderColor: !isApprove && !remark.trim() ? '#ffcdd2' : '#ddd'
+          }}
+        />
+        {!isApprove && !remark.trim() && (
+          <p style={{ color: '#d32f2f', fontSize: '12px', margin: '4px 0 0' }}>* จำเป็นต้องระบุเหตุผล</p>
+        )}
+        <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+          <button
+            onClick={handleConfirm}
+            disabled={loading || (!isApprove && !remark.trim())}
+            style={{
+              flex: 1, padding: '11px', borderRadius: '8px', border: 'none',
+              background: isApprove ? '#4caf50' : '#e74c3c',
+              color: '#fff', fontWeight: '600', fontSize: '14px', cursor: 'pointer',
+              opacity: loading || (!isApprove && !remark.trim()) ? 0.6 : 1
+            }}
+          >
+            {loading ? '...' : isApprove ? 'อนุมัติ' : 'ปฏิเสธ'}
+          </button>
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            style={{
+              flex: 1, padding: '11px', borderRadius: '8px',
+              border: '1px solid #ddd', background: '#fff',
+              color: '#333', fontWeight: '600', fontSize: '14px', cursor: 'pointer'
+            }}
+          >
+            ยกเลิก
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==================== Toast Notification Component (แทน alert) ====================
+const Toast = ({ message, type, onClose }) => {
+  React.useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(onClose, 3000);
+    return () => clearTimeout(t);
+  }, [message]);
+
+  if (!message) return null;
+  return (
+    <div style={{
+      position: 'fixed', bottom: '24px', right: '24px', zIndex: 3000,
+      background: type === 'success' ? '#4caf50' : '#e74c3c',
+      color: '#fff', padding: '14px 20px', borderRadius: '10px',
+      boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: '14px',
+      fontWeight: '500', display: 'flex', alignItems: 'center', gap: '8px',
+      animation: 'slideIn 0.3s ease'
+    }}>
+      <i className={`fa-solid ${type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}`}></i>
+      {message}
+    </div>
+  );
+};
+
 // ==================== Dashboard Content Component ====================
 const DashboardContent = () => {
   const [stats, setStats] = useState({
@@ -351,32 +463,30 @@ const DashboardContent = () => {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Bug #7 Fix: Modal state แทน prompt/alert
+  const [remarkModal, setRemarkModal] = useState({ open: false, mode: '', bookingId: null });
+  const [toast, setToast] = useState({ message: '', type: '' });
+
+  const showToast = (message, type = 'success') => setToast({ message, type });
+
   useEffect(() => {
     fetchDashboardData();
   }, []);
 
   const fetchDashboardData = async () => {
     try {
-      // Fetch bookings
       const bookingResponse = await fetch('/api/bookings/all', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
-
       if (bookingResponse.ok) {
         const bookingData = await bookingResponse.json();
         const allBookings = bookingData.bookings || [];
-
-        // Filter only pending bookings for dashboard
         const pendingBookings = allBookings.filter(b => b.status === 'pending');
-        setBookings(pendingBookings.slice(0, 10)); // Show only first 10
-
-        // Calculate stats
+        setBookings(pendingBookings.slice(0, 10));
         setStats({
-          totalRequest: pendingBookings.length + 0, // Booking + Register requests
+          totalRequest: pendingBookings.length,
           bookingRequest: pendingBookings.length,
-          registerRequest: 0 // Can be updated based on other API
+          registerRequest: 0
         });
       }
     } catch (error) {
@@ -386,40 +496,22 @@ const DashboardContent = () => {
     }
   };
 
-  const handleAccept = async (bookingId) => {
-    const remark = prompt('หมายเหตุ (ถ้ามี):');
-    if (remark === null) return;
-
-    try {
-      const response = await fetch(`/api/bookings/${bookingId}/approve`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ remark })
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        alert('อนุมัติการจองสำเร็จ');
-        fetchDashboardData(); // Refresh data
-      } else {
-        alert(data.message || 'เกิดข้อผิดพลาด');
-      }
-    } catch (error) {
-      console.error('Error approving booking:', error);
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
-    }
+  // Bug #7 Fix: เปิด Modal แทน prompt()
+  const handleAccept = (bookingId) => {
+    setRemarkModal({ open: true, mode: 'approve', bookingId });
   };
 
-  const handleDecline = async (bookingId) => {
-    const remark = prompt('เหตุผลในการปฏิเสธ:');
-    if (!remark) return;
+  const handleDecline = (bookingId) => {
+    setRemarkModal({ open: true, mode: 'reject', bookingId });
+  };
 
+  const handleRemarkConfirm = async (remark) => {
+    const { mode, bookingId } = remarkModal;
+    setRemarkModal({ open: false, mode: '', bookingId: null });
+
+    const endpoint = mode === 'approve' ? 'approve' : 'reject';
     try {
-      const response = await fetch(`/api/bookings/${bookingId}/reject`, {
+      const response = await fetch(`/api/bookings/${bookingId}/${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -427,18 +519,15 @@ const DashboardContent = () => {
         },
         body: JSON.stringify({ remark })
       });
-
       const data = await response.json();
-
       if (response.ok) {
-        alert('ปฏิเสธการจองสำเร็จ');
-        fetchDashboardData(); // Refresh data
+        showToast(mode === 'approve' ? 'อนุมัติการจองสำเร็จ' : 'ปฏิเสธการจองสำเร็จ', 'success');
+        fetchDashboardData();
       } else {
-        alert(data.message || 'เกิดข้อผิดพลาด');
+        showToast(data.message || 'เกิดข้อผิดพลาด', 'error');
       }
-    } catch (error) {
-      console.error('Error rejecting booking:', error);
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    } catch {
+      showToast('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
     }
   };
 
@@ -452,81 +541,81 @@ const DashboardContent = () => {
   }
 
   return (
-    <div>
-      <div className="page-title-box">
-        <span className="page-title">Admin Dashboard</span>
-      </div>
+    <>
+      <RemarkModal
+        isOpen={remarkModal.open}
+        mode={remarkModal.mode}
+        onConfirm={handleRemarkConfirm}
+        onCancel={() => setRemarkModal({ open: false, mode: '', bookingId: null })}
+      />
+      <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: '', type: '' })} />
 
-      <div className="quick-stats-title">Quick Stats</div>
-
-      <div className="stats">
-        <div className="stat-card">
-          <div className="label">Total Request</div>
-          <b>{stats.totalRequest}</b>
+      <div>
+        <div className="page-title-box">
+          <span className="page-title">Admin Dashboard</span>
         </div>
-        <div className="stat-card">
-          <div className="label">Booking Request</div>
-          <b>{stats.bookingRequest}</b>
-        </div>
-        <div className="stat-card">
-          <div className="label">Register Request</div>
-          <b>{stats.registerRequest}</b>
-        </div>
-      </div>
 
-      <div className="bookings-title">Recent Booking Requests</div>
+        <div className="quick-stats-title">Quick Stats</div>
 
-      <div className="container">
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>ผู้จอง</th>
-                <th>Room</th>
-                <th>Date</th>
-                <th>Time</th>
-                <th>Detail</th>
-                <th>Decision</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bookings.length === 0 ? (
+        <div className="stats">
+          <div className="stat-card">
+            <div className="label">Total Request</div>
+            <b>{stats.totalRequest}</b>
+          </div>
+          <div className="stat-card">
+            <div className="label">Booking Request</div>
+            <b>{stats.bookingRequest}</b>
+          </div>
+          <div className="stat-card">
+            <div className="label">Register Request</div>
+            <b>{stats.registerRequest}</b>
+          </div>
+        </div>
+
+        <div className="bookings-title">Recent Booking Requests</div>
+
+        <div className="container">
+          <div className="table-container">
+            <table>
+              <thead>
                 <tr>
-                  <td colSpan="6" style={{ textAlign: 'center', padding: '20px' }}>
-                    ไม่มีคำขอจองใหม่
-                  </td>
+                  <th>ผู้จอง</th>
+                  <th>Room</th>
+                  <th>Date</th>
+                  <th>Time</th>
+                  <th>Detail</th>
+                  <th>Decision</th>
                 </tr>
-              ) : (
-                bookings.map((booking) => (
-                  <tr key={booking.id}>
-                    <td>{booking.user_name || booking.user_email}</td>
-                    <td>{booking.room}</td>
-                    <td>{booking.date}</td>
-                    <td>{booking.start_time} - {booking.end_time}</td>
-                    <td>{booking.detail || '-'}</td>
-                    <td>
-                      <span
-                        className="btn-accept"
-                        onClick={() => handleAccept(booking.id)}
-                      >
-                        Accept
-                      </span>
-                      {' | '}
-                      <span
-                        className="btn-decline"
-                        onClick={() => handleDecline(booking.id)}
-                      >
-                        Decline
-                      </span>
+              </thead>
+              <tbody>
+                {bookings.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" style={{ textAlign: 'center', padding: '20px' }}>
+                      ไม่มีคำขอจองใหม่
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  bookings.map((booking) => (
+                    <tr key={booking.id}>
+                      <td>{booking.user_name || booking.user_email}</td>
+                      <td>{booking.room}</td>
+                      <td>{booking.date}</td>
+                      <td>{booking.start_time} - {booking.end_time}</td>
+                      <td>{booking.detail || '-'}</td>
+                      <td>
+                        <span className="btn-accept" onClick={() => handleAccept(booking.id)}>Accept</span>
+                        {' | '}
+                        <span className="btn-decline" onClick={() => handleDecline(booking.id)}>Decline</span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };
 
@@ -1150,9 +1239,527 @@ const RoomRightPanel = ({ selectedRoom, onClose, onAddRoom }) => {
   );
 };
 
+// ==================== Access Logs Component ====================
+const AccessLogs = () => {
+  const [logs, setLogs]           = useState([]);
+  const [stats, setStats]         = useState(null);
+  const [rooms, setRooms]         = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  // Filter & search state
+  const [filterRoom,   setFilterRoom]   = useState('');
+  const [filterResult, setFilterResult] = useState('all');
+  const [search,       setSearch]       = useState('');
+  const [searchInput,  setSearchInput]  = useState('');
+
+  // Pagination
+  const [offset, setOffset] = useState(0);
+  const [total,  setTotal]  = useState(0);
+  const LIMIT = 50;
+
+  const token = () => localStorage.getItem('token');
+
+  // โหลด rooms สำหรับ dropdown filter
+  useEffect(() => {
+    fetch('/api/rooms')
+      .then(r => r.json())
+      .then(d => setRooms(d.rooms || []))
+      .catch(() => {});
+  }, []);
+
+  // โหลด stats
+  useEffect(() => {
+    setStatsLoading(true);
+    fetch('/api/access-logs/stats', {
+      headers: { 'Authorization': `Bearer ${token()}` }
+    })
+      .then(r => r.json())
+      .then(d => { if (d.success) setStats(d.stats); })
+      .catch(() => {})
+      .finally(() => setStatsLoading(false));
+  }, []);
+
+  // โหลด logs เมื่อ filter / search / pagination เปลี่ยน
+  useEffect(() => {
+    fetchLogs();
+  }, [filterRoom, filterResult, search, offset]);
+
+  const fetchLogs = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        limit:  LIMIT,
+        offset: offset,
+        result: filterResult,
+        ...(filterRoom && { room: filterRoom }),
+        ...(search     && { search }),
+      });
+      const res  = await fetch(`/api/access-logs?${params}`, {
+        headers: { 'Authorization': `Bearer ${token()}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setLogs(data.logs  || []);
+        setTotal(data.total || 0);
+      }
+    } catch (e) {
+      console.error('Error fetching logs:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // รีเซ็ต offset เมื่อ filter เปลี่ยน
+  const handleFilterRoom   = (v) => { setFilterRoom(v);   setOffset(0); };
+  const handleFilterResult = (v) => { setFilterResult(v); setOffset(0); };
+  const handleSearch       = ()  => { setSearch(searchInput); setOffset(0); };
+
+  const formatDateTime = (raw) => {
+    if (!raw) return '-';
+    const d = new Date(raw);
+    return d.toLocaleString('th-TH', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+  };
+
+  const totalPages   = Math.ceil(total / LIMIT);
+  const currentPage  = Math.floor(offset / LIMIT) + 1;
+
+  return (
+    <div>
+      {/* Title */}
+      <div className="page-title-box">
+        <span className="page-title">Access Logs</span>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="quick-stats-title">Overview</div>
+      <div className="stats" style={{ marginBottom: '24px' }}>
+        {statsLoading ? (
+          <div style={{ color: '#aaa', padding: '10px' }}>
+            <i className="fa-solid fa-spinner fa-spin"></i> Loading...
+          </div>
+        ) : stats ? (
+          <>
+            <div className="stat-card">
+              <div className="label">Total Scans</div>
+              <b>{stats.total.toLocaleString()}</b>
+            </div>
+            <div className="stat-card" style={{ color: '#4caf50' }}>
+              <div className="label">Granted</div>
+              <b>{stats.granted.toLocaleString()}</b>
+            </div>
+            <div className="stat-card" style={{ color: '#e74c3c' }}>
+              <div className="label">Denied</div>
+              <b>{stats.denied.toLocaleString()}</b>
+            </div>
+            <div className="stat-card" style={{ color: '#4c6ef5' }}>
+              <div className="label">Today</div>
+              <b>{stats.today.toLocaleString()}</b>
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      {/* Filters Row */}
+      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px', alignItems: 'center' }}>
+
+        {/* Search */}
+        <div style={{ display: 'flex', gap: '6px', flex: '1', minWidth: '200px' }}>
+          <input
+            type="text"
+            placeholder="Search UUID / Name / Email / Student ID"
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSearch()}
+            style={{ flex: 1, padding: '8px 12px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
+          />
+          <button
+            onClick={handleSearch}
+            style={{ padding: '8px 14px', background: '#d88b8b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
+          >
+            <i className="fa-solid fa-magnifying-glass"></i>
+          </button>
+          {search && (
+            <button
+              onClick={() => { setSearchInput(''); setSearch(''); setOffset(0); }}
+              style={{ padding: '8px 10px', background: '#f2f2f2', border: '1px solid #ddd', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#666' }}
+              title="ล้างการค้นหา"
+            >
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          )}
+        </div>
+
+        {/* Room filter */}
+        <select
+          value={filterRoom}
+          onChange={e => handleFilterRoom(e.target.value)}
+          style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', minWidth: '130px' }}
+        >
+          <option value="">All Rooms</option>
+          {rooms.map(r => (
+            <option key={r.id} value={r.name}>{r.name}</option>
+          ))}
+        </select>
+
+        {/* Result filter */}
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {[
+            { value: 'all',     label: 'All' },
+            { value: 'granted', label: '✅ Granted' },
+            { value: 'denied',  label: '❌ Denied' },
+          ].map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => handleFilterResult(opt.value)}
+              style={{
+                padding: '8px 14px', borderRadius: '6px', fontSize: '13px', cursor: 'pointer',
+                border: filterResult === opt.value ? '2px solid #d88b8b' : '1px solid #ddd',
+                background: filterResult === opt.value ? '#d88b8b' : 'white',
+                color: filterResult === opt.value ? 'white' : '#333',
+                fontWeight: filterResult === opt.value ? '600' : '400',
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Refresh */}
+        <button
+          onClick={() => fetchLogs()}
+          style={{ padding: '8px 12px', background: '#f2f2f2', border: '1px solid #ddd', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#555' }}
+          title="รีเฟรช"
+        >
+          <i className="fa-solid fa-rotate-right"></i>
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="container">
+        <div className="table-container">
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#aaa' }}>
+              <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '28px' }}></i>
+              <p style={{ marginTop: '10px' }}>Loading...</p>
+            </div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Date / Time</th>
+                  <th>UUID (RFID)</th>
+                  <th>Student ID</th>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Room</th>
+                  <th>Status</th>
+                  <th>Method</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.length === 0 ? (
+                  <tr>
+                    <td colSpan="10" style={{ textAlign: 'center', padding: '30px', color: '#aaa' }}>
+                      <i className="fa-solid fa-inbox" style={{ fontSize: '28px', marginBottom: '8px', display: 'block' }}></i>
+                      No records found
+                    </td>
+                  </tr>
+                ) : logs.map((log, idx) => (
+                  <tr key={log.id}>
+                    <td style={{ color: '#aaa', fontSize: '12px' }}>{offset + idx + 1}</td>
+                    <td style={{ whiteSpace: 'nowrap', fontSize: '13px' }}>
+                      {formatDateTime(log.scanned_at)}
+                    </td>
+                    <td>
+                      <span style={{ fontFamily: 'monospace', background: '#f2f2f2', padding: '2px 6px', borderRadius: '4px', fontSize: '12px' }}>
+                        {log.uuid || '-'}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: '13px' }}>{log.user_id || '-'}</td>
+                    <td style={{ fontSize: '13px', fontWeight: log.name ? '500' : '400', color: log.name ? '#333' : '#bbb' }}>
+                      {log.name || 'Unknown'}
+                    </td>
+                    <td style={{ fontSize: '12px', color: '#555' }}>{log.email || '-'}</td>
+                    <td style={{ fontSize: '12px' }}>
+                      {log.role ? (
+                        <span style={{
+                          padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: '600',
+                          background: log.role === 'admin' ? '#fff3e0' : '#e8f5e9',
+                          color:      log.role === 'admin' ? '#e65100' : '#2e7d32',
+                        }}>
+                          {log.role}
+                        </span>
+                      ) : '-'}
+                    </td>
+                    <td style={{ fontSize: '13px', fontWeight: '500' }}>{log.room || '-'}</td>
+                    <td>
+                      <span style={{
+                        padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: '600',
+                        background: log.result === 'granted' ? '#d4edda' : '#f8d7da',
+                        color:      log.result === 'granted' ? '#155724' : '#721c24',
+                      }}>
+                        {log.result === 'granted' ? '✅ Granted' : '❌ Denied'}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{
+                        padding: '2px 8px', borderRadius: '10px', fontSize: '11px',
+                        background: '#e3f2fd', color: '#1565c0', fontWeight: '500'
+                      }}>
+                        {log.method || 'rfid'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Pagination */}
+        {total > LIMIT && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 4px', fontSize: '13px', color: '#666' }}>
+            <span>Showing {offset + 1}–{Math.min(offset + LIMIT, total)} of {total.toLocaleString()} records</span>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                disabled={offset === 0}
+                onClick={() => setOffset(Math.max(0, offset - LIMIT))}
+                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #ddd', background: offset === 0 ? '#f5f5f5' : '#fff', cursor: offset === 0 ? 'not-allowed' : 'pointer', color: offset === 0 ? '#bbb' : '#333' }}
+              >
+                ‹ Prev
+              </button>
+              <span style={{ padding: '6px 12px', background: '#d88b8b', color: '#fff', borderRadius: '6px', fontWeight: '600' }}>
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                disabled={offset + LIMIT >= total}
+                onClick={() => setOffset(offset + LIMIT)}
+                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #ddd', background: offset + LIMIT >= total ? '#f5f5f5' : '#fff', cursor: offset + LIMIT >= total ? 'not-allowed' : 'pointer', color: offset + LIMIT >= total ? '#bbb' : '#333' }}
+              >
+                Next ›
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ==================== Notification Bell Component ====================
+const NotificationBell = ({ userEmail }) => {
+  const [unreadCount, setUnreadCount] = React.useState(0);
+  const [notifications, setNotifications] = React.useState([]);
+  const [open, setOpen] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+  const panelRef = React.useRef(null);
+
+  const token = () => localStorage.getItem('token');
+
+  // poll unread count ทุก 30 วิ
+  React.useEffect(() => {
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // close panel เมื่อคลิกข้างนอก
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const fetchUnreadCount = async () => {
+    try {
+      const res = await fetch('/api/notifications/unread-count', {
+        headers: { 'Authorization': `Bearer ${token()}` }
+      });
+      const d = await res.json();
+      if (d.success) setUnreadCount(d.unread_count);
+    } catch {}
+  };
+
+  const fetchNotifications = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/notifications?limit=20', {
+        headers: { 'Authorization': `Bearer ${token()}` }
+      });
+      const d = await res.json();
+      if (d.success) {
+        setNotifications(d.notifications);
+        setUnreadCount(d.unread_count);
+      }
+    } catch {}
+    setLoading(false);
+  };
+
+  const handleOpen = () => {
+    setOpen(v => !v);
+    if (!open) fetchNotifications();
+  };
+
+  const markRead = async (id) => {
+    await fetch(`/api/notifications/${id}/read`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token()}` }
+    });
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: 1 } : n));
+    setUnreadCount(prev => Math.max(0, prev - 1));
+  };
+
+  const markAllRead = async () => {
+    await fetch('/api/notifications/read-all', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token()}` }
+    });
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: 1 })));
+    setUnreadCount(0);
+  };
+
+  const deleteNotif = async (id, e) => {
+    e.stopPropagation();
+    await fetch(`/api/notifications/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token()}` }
+    });
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const iconMap = {
+    booking_result: 'fa-calendar-check',
+    rfid_denied:    'fa-shield-halved',
+    reminder:       'fa-clock',
+  };
+  const colorMap = {
+    booking_result: '#4c6ef5',
+    rfid_denied:    '#e53935',
+    reminder:       '#f59f00',
+  };
+
+  const formatTime = (raw) => {
+    if (!raw) return '';
+    const d = new Date(raw);
+    const now = new Date();
+    const diff = Math.floor((now - d) / 60000);
+    if (diff < 1)  return 'just now';
+    if (diff < 60) return `${diff}m ago`;
+    if (diff < 1440) return `${Math.floor(diff/60)}h ago`;
+    return d.toLocaleDateString('th-TH');
+  };
+
+  return (
+    <div ref={panelRef} style={{ position: 'relative', display: 'inline-block' }}>
+      {/* Bell button */}
+      <button
+        onClick={handleOpen}
+        style={{
+          position: 'relative', background: 'transparent', border: 'none',
+          cursor: 'pointer', padding: '2px 4px', borderRadius: '8px',
+          color: '#d28b8b', fontSize: '20px',
+          transition: 'background 0.2s', marginBottom: '12px',
+        }}
+        title="Notifications"
+      >
+        <i className="fa-solid fa-bell"></i>
+        {unreadCount > 0 && (
+          <span style={{
+            position: 'absolute', top: '2px', right: '2px',
+            background: '#e53935', color: '#fff',
+            borderRadius: '10px', fontSize: '10px', fontWeight: '700',
+            padding: '1px 5px', minWidth: '16px', textAlign: 'center',
+            border: '2px solid #fff',
+          }}>
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {/* Dropdown Panel */}
+      {open && (
+        <div style={{
+          position: 'fixed', right: '16px', top: 'auto', width: '268px',
+          background: '#fff', borderRadius: '12px', zIndex: 9999,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+          border: '1px solid #eee', overflow: 'hidden',
+        }}>
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', borderBottom: '1px solid #f0f0f0' }}>
+            <span style={{ fontWeight: '700', fontSize: '15px', color: '#333' }}>
+              Notifications {unreadCount > 0 && <span style={{ background: '#e53935', color: '#fff', borderRadius: '10px', fontSize: '11px', padding: '1px 7px', marginLeft: '6px' }}>{unreadCount}</span>}
+            </span>
+            {unreadCount > 0 && (
+              <button onClick={markAllRead} style={{ background: 'none', border: 'none', color: '#4c6ef5', fontSize: '12px', cursor: 'pointer', fontWeight: '600' }}>
+                Mark all read
+              </button>
+            )}
+          </div>
+
+          {/* List */}
+          <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '30px', color: '#aaa' }}>
+                <i className="fa-solid fa-spinner fa-spin"></i>
+              </div>
+            ) : notifications.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#bbb' }}>
+                <i className="fa-solid fa-bell-slash" style={{ fontSize: '28px', display: 'block', marginBottom: '10px' }}></i>
+                No notifications
+              </div>
+            ) : notifications.map(n => (
+              <div
+                key={n.id}
+                onClick={() => !n.is_read && markRead(n.id)}
+                style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '12px',
+                  padding: '12px 16px', borderBottom: '1px solid #f5f5f5',
+                  background: n.is_read ? '#fff' : '#f0f4ff',
+                  cursor: n.is_read ? 'default' : 'pointer',
+                  transition: 'background 0.15s',
+                }}
+              >
+                <div style={{
+                  width: '36px', height: '36px', borderRadius: '50%', flexShrink: 0,
+                  background: `${colorMap[n.type] || '#888'}22`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: colorMap[n.type] || '#888', fontSize: '15px',
+                }}>
+                  <i className={`fa-solid ${iconMap[n.type] || 'fa-bell'}`}></i>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: n.is_read ? '400' : '600', fontSize: '13px', color: '#333', marginBottom: '3px' }}>{n.title}</div>
+                  <div style={{ fontSize: '12px', color: '#666', lineHeight: '1.4', wordBreak: 'break-word' }}>{n.message}</div>
+                  <div style={{ fontSize: '11px', color: '#aaa', marginTop: '4px' }}>{formatTime(n.created_at)}</div>
+                </div>
+                <button
+                  onClick={(e) => deleteNotif(n.id, e)}
+                  style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: '13px', padding: '2px 4px', flexShrink: 0 }}
+                  title="Delete"
+                >
+                  <i className="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ==================== Main Admin Dashboard Component ====================
 const AdminDashboard = ({ user, onLogout }) => {
   const [currentPage, setCurrentPage] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [uuid, setUuid] = useState('');
   const [uuidUserInfo, setUuidUserInfo] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -1161,7 +1768,7 @@ const AdminDashboard = ({ user, onLogout }) => {
   const [settingsRefreshKey, setSettingsRefreshKey] = useState(0);
 
   useEffect(() => {
-    const socket = io('http://localhost:5000', { transports: ['websocket', 'polling'] });
+    const socket = io(window.location.origin, { transports: ['websocket', 'polling'] });
     fetch('/api/reset_uuid', { method: 'POST' }).catch(err => {
       console.error('Error resetting UUID:', err);
     });
@@ -1233,6 +1840,7 @@ const AdminDashboard = ({ user, onLogout }) => {
   const handlePageChange = (page) => {
     if (page !== 'settings') setSelectedRoom(null);
     setCurrentPage(page);
+    setSidebarOpen(false);
   };
 
   // Default to Add Room panel when entering settings
@@ -1261,7 +1869,7 @@ const AdminDashboard = ({ user, onLogout }) => {
       case 'bookings':
         return <BookingsPage />;
       case 'logs':
-        return <div className="page-title-box"><span className="page-title">Access Logs (Coming Soon)</span></div>;
+        return <AccessLogs />;
       default:
         return <DashboardContent />;
     }
@@ -1285,18 +1893,36 @@ const AdminDashboard = ({ user, onLogout }) => {
         editingUser={editingUser}
         onCancelEdit={handleCancelEdit}
         onEditUser={handleEditUser}
+        adminUser={user}
       />
     );
   };
 
   return (
     <div className="layout">
+      {/* Overlay backdrop — mobile only, rendered via CSS */}
+      <div
+        className={`sidebar-overlay${sidebarOpen ? ' open' : ''}`}
+        onClick={() => setSidebarOpen(false)}
+      />
+
+      {/* Sidebar — ไม่ห่อด้วย div เพิ่มเติม */}
       <Sidebar
         currentPage={currentPage}
         onPageChange={handlePageChange}
         onLogout={onLogout}
         user={user}
+        sidebarOpen={sidebarOpen}
       />
+
+      {/* Mobile top bar — hidden on desktop via CSS */}
+      <div className="mobile-topbar">
+        <button className="hamburger-btn" onClick={() => setSidebarOpen(v => !v)}>
+          <i className={`fa-solid ${sidebarOpen ? 'fa-xmark' : 'fa-bars'}`}></i>
+        </button>
+        <span className="mobile-topbar-title">Admin Dashboard</span>
+        <div style={{ width: 34 }} />
+      </div>
 
       <main className="main">
         <div id="main-content">

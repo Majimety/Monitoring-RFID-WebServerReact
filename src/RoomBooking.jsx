@@ -1,7 +1,176 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './RoomBooking.css';
 
+// ==================== Notification Bell ====================
+const NotificationBell = ({ userEmail }) => {
+  const [unreadCount, setUnreadCount] = React.useState(0);
+  const [notifications, setNotifications] = React.useState([]);
+  const [open, setOpen] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+  const panelRef = React.useRef(null);
+  const token = () => localStorage.getItem('token');
+
+  React.useEffect(() => {
+    fetchUnreadCount();
+    const iv = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(iv);
+  }, []);
+
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const fetchUnreadCount = async () => {
+    try {
+      const res = await fetch('/api/notifications/unread-count', {
+        headers: { 'Authorization': `Bearer ${token()}` }
+      });
+      const d = await res.json();
+      if (d.success) setUnreadCount(d.unread_count);
+    } catch {}
+  };
+
+  const fetchNotifications = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/notifications?limit=20', {
+        headers: { 'Authorization': `Bearer ${token()}` }
+      });
+      const d = await res.json();
+      if (d.success) {
+        setNotifications(d.notifications);
+        setUnreadCount(d.unread_count);
+      }
+    } catch {}
+    setLoading(false);
+  };
+
+  const handleOpen = () => {
+    setOpen(v => !v);
+    if (!open) fetchNotifications();
+  };
+
+  const markRead = async (id) => {
+    await fetch(`/api/notifications/${id}/read`, {
+      method: 'POST', headers: { 'Authorization': `Bearer ${token()}` }
+    });
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: 1 } : n));
+    setUnreadCount(prev => Math.max(0, prev - 1));
+  };
+
+  const markAllRead = async () => {
+    await fetch('/api/notifications/read-all', {
+      method: 'POST', headers: { 'Authorization': `Bearer ${token()}` }
+    });
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: 1 })));
+    setUnreadCount(0);
+  };
+
+  const deleteNotif = async (id, e) => {
+    e.stopPropagation();
+    await fetch(`/api/notifications/${id}`, {
+      method: 'DELETE', headers: { 'Authorization': `Bearer ${token()}` }
+    });
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const iconMap = { booking_result: 'fa-calendar-check', reminder: 'fa-clock' };
+  const colorMap = { booking_result: '#4c6ef5', reminder: '#f59f00' };
+
+  const formatTime = (raw) => {
+    if (!raw) return '';
+    const diff = Math.floor((new Date() - new Date(raw)) / 60000);
+    if (diff < 1) return 'just now';
+    if (diff < 60) return `${diff}m ago`;
+    if (diff < 1440) return `${Math.floor(diff / 60)}h ago`;
+    return new Date(raw).toLocaleDateString('th-TH');
+  };
+
+  return (
+    <div ref={panelRef} style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        onClick={handleOpen}
+        style={{ position: 'relative', background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px 10px', color: '#d28b8b', fontSize: '20px' }}
+        title="Notifications"
+      >
+        <i className="fa-solid fa-bell"></i>
+        {unreadCount > 0 && (
+          <span style={{ position: 'absolute', top: '2px', right: '2px', background: '#e53935', color: '#fff', borderRadius: '10px', fontSize: '10px', fontWeight: '700', padding: '1px 5px', border: '2px solid #fff' }}>
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div style={{ position: 'absolute', right: 0, top: '44px', width: '340px', background: '#fff', borderRadius: '12px', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', border: '1px solid #eee', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', borderBottom: '1px solid #f0f0f0' }}>
+            <span style={{ fontWeight: '700', fontSize: '15px', color: '#333' }}>
+              Notifications
+              {unreadCount > 0 && (
+                <span style={{ background: '#e53935', color: '#fff', borderRadius: '10px', fontSize: '11px', padding: '1px 7px', marginLeft: '6px' }}>
+                  {unreadCount}
+                </span>
+              )}
+            </span>
+            {unreadCount > 0 && (
+              <button onClick={markAllRead} style={{ background: 'none', border: 'none', color: '#4c6ef5', fontSize: '12px', cursor: 'pointer', fontWeight: '600' }}>
+                Mark all read
+              </button>
+            )}
+          </div>
+
+          <div style={{ maxHeight: '380px', overflowY: 'auto' }}>
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '30px', color: '#aaa' }}>
+                <i className="fa-solid fa-spinner fa-spin"></i>
+              </div>
+            ) : notifications.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#bbb' }}>
+                <i className="fa-solid fa-bell-slash" style={{ fontSize: '28px', display: 'block', marginBottom: '10px' }}></i>
+                No notifications
+              </div>
+            ) : notifications.map(n => (
+              <div
+                key={n.id}
+                onClick={() => !n.is_read && markRead(n.id)}
+                style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 16px', borderBottom: '1px solid #f5f5f5', background: n.is_read ? '#fff' : '#f0f4ff', cursor: n.is_read ? 'default' : 'pointer' }}
+              >
+                <div style={{ width: '34px', height: '34px', borderRadius: '50%', flexShrink: 0, background: `${colorMap[n.type] || '#888'}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: colorMap[n.type] || '#888', fontSize: '14px' }}>
+                  <i className={`fa-solid ${iconMap[n.type] || 'fa-bell'}`}></i>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: n.is_read ? '400' : '600', fontSize: '13px', color: '#333', marginBottom: '3px' }}>{n.title}</div>
+                  <div style={{ fontSize: '12px', color: '#666', lineHeight: '1.4' }}>{n.message}</div>
+                  <div style={{ fontSize: '11px', color: '#aaa', marginTop: '4px' }}>{formatTime(n.created_at)}</div>
+                </div>
+                <button onClick={(e) => deleteNotif(n.id, e)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: '13px' }} title="Delete">
+                  <i className="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
 const RoomBooking = ({ user, onLogout, onNavigate }) => {
+  // Ensure mobile viewport
+  React.useEffect(() => {
+    let meta = document.querySelector("meta[name=viewport]");
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.name = "viewport";
+      document.head.appendChild(meta);
+    }
+    meta.content = "width=device-width, initial-scale=1, maximum-scale=1";
+  }, []);
   const [requests, setRequests] = useState([]);
   const [stats, setStats] = useState({ approved: 0, rejected: 0, pending: 0, usedLimit: 0 });
   const [showRequestDialog, setShowRequestDialog] = useState(false);
@@ -32,6 +201,7 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
   const timeSlots = generateTimeSlots();
 
   // Fetch booking requests
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchRequests();
     fetchRooms();
@@ -409,10 +579,11 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
             <h1>Room Access Control</h1>
           </div>
 
-          <div className="user-section">
+          <div className="user-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <NotificationBell userEmail={user?.email} />
             <button className="logout-btn" onClick={onLogout}>
               <i className="fa-solid fa-right-from-bracket"></i>
-              Logout
+              <span className="logout-text">Logout</span>
             </button>
             <button className="user-info profile-button" onClick={() => onNavigate && onNavigate('profile')}>
               <i className="fa-solid fa-user"></i>
@@ -465,7 +636,7 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
       <div className="section">
         <div className="section-title">My Requests</div>
         <div className="table-container">
-          <table>
+          <div className="table-responsive"><table>
             <thead>
               <tr>
                 <th style={{width: '120px'}}>ประเภทห้อง</th>
@@ -505,7 +676,7 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
                 })
               )}
             </tbody>
-          </table>
+          </table></div>
         </div>
       </div>
 

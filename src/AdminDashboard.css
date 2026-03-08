@@ -208,7 +208,7 @@
 .search-box i {
   position: absolute;
   left: 10px;
-  top: 50%;
+  top: 44%;
   transform: translateY(-50%);
   color: #aaa;
 }
@@ -481,262 +481,64 @@ tbody tr:hover {
   background: #e0e0e0;
 }
 
-/* ==================== Responsive Design ==================== */
 
-/* Tablet */
-@media screen and (max-width: 1024px) {
-  .container {
-    padding: 20px 16px;
-  }
 
-  table {
-    min-width: 700px;
-  }
-
-  th,
-  td {
-    padding: 10px 8px;
-    font-size: 0.9rem;
-  }
-}
-
-/* Mobile */
-@media screen and (max-width: 768px) {
-  .layout {
-    flex-direction: column;
-  }
-
-  .sidebar {
-    width: 100%;
-    flex-direction: row;
-    padding: 10px;
-    justify-content: space-between;
-  }
-
-  .logo-box {
-    width: 48px;
-    height: 48px;
-  }
-
-  .sidebar-menu {
-    flex-direction: row;
-    margin-top: 0;
-    gap: 8px;
-  }
-
-  .menu-item {
-    width: 48px;
-    height: 48px;
-  }
-
-  .menu-item i {
-    font-size: 18px;
-  }
-
-  .main {
-    padding: 16px;
-    height: auto;
-  }
-
-  .right-panel {
-    width: 100%;
-    border-left: none;
-    border-top: 1px solid #eee;
-  }
-
-  .stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .table-container {
-    display: none;
-  }
-
-  .mobile-cards {
-    display: block;
-  }
-
-  .container {
-    padding: 16px;
-    border-radius: 8px;
-  }
-}
-
-/* Small Mobile */
-@media screen and (max-width: 480px) {
-  .page-title {
-    font-size: 20px;
-  }
-
-  .stats {
-    grid-template-columns: 1fr;
-  }
-
-  .stat-card {
-    padding: 16px;
-  }
-
-  .user-card {
-    padding: 12px;
-  }
-
-  .user-card .card-actions {
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .action-link {
-    text-align: center;
-    width: 100%;
-  }
-
-  .field-label {
-    min-width: 70px;
-    font-size: 0.9rem;
-  }
-}
-
-/* Landscape Mobile */
-@media screen and (max-width: 768px) and (orientation: landscape) {
-  .table-container {
-    display: block;
-  }
-
-  .mobile-cards {
-    display: none;
-  }
-
-  table {
-    min-width: 600px;
-  }
-
-  th,
-  td {
-    padding: 8px 6px;
-    font-size: 0.8rem;
-  }
-}
-/* Role Selector Styles */
-.role-selector {
-  margin-bottom: 10px;
-}
-
-.role-selector label {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 8px;
-}
-
-.role-options {
+/* ==================== Door/Settings Styles ==================== */
+.door-stats {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
 }
 
-.role-btn {
-  padding: 12px 8px;
-  border: 2px solid #e0e0e0;
+.door-status {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 14px 0;
+}
+
+.door-status.locked {
+  color: #a61b1b;
+}
+
+.door-status.open {
+  color: #1e7e34;
+}
+
+.door-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.door-btn {
+  flex: 1;
+  padding: 10px 0;
+  font-size: 13px;
+  font-weight: 600;
   border-radius: 8px;
-  background: #fff;
+  border: none;
   cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  transition: all 0.2s ease;
-  font-size: 13px;
-  color: #666;
+  transition: all 0.2s;
 }
 
-.role-btn i {
-  font-size: 24px;
-  color: #999;
-  transition: color 0.2s ease;
-}
-
-.role-btn span {
-  font-weight: 500;
-}
-
-.role-btn:hover {
-  border-color: #d28b8b;
-  background: #fef5f5;
-}
-
-.role-btn:hover i {
-  color: #d28b8b;
-}
-
-.role-btn.active {
-  border-color: #d28b8b;
+.door-btn.open {
   background: #d28b8b;
   color: #fff;
 }
 
-.role-btn.active i {
-  color: #fff;
+.door-btn.open:hover {
+  background: #c97a7a;
 }
 
-.role-btn.active span {
-  font-weight: 600;
-}
-/* ==================== Additional Auth Styles for AdminDashboard ==================== */
-
-/* Logout button styling */
-.logout-item {
-  margin-top: auto;
-  background: #ffebee !important;
-  color: #d32f2f !important;
-}
-
-.logout-item:hover {
-  background: #d32f2f !important;
-  color: #fff !important;
-}
-
-/* Sidebar user info */
-.sidebar-user {
-  padding: 16px;
-  border-top: 1px solid #eee;
-  text-align: center;
-  margin-top: auto;
-}
-
-.user-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: #d28b8b;
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  font-size: 18px;
-  margin: 0 auto 8px;
-}
-
-.user-name {
-  font-size: 13px;
-  font-weight: 600;
+.door-btn.close {
+  background: #f2f2f2;
   color: #333;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-/* Responsive adjustments */
-@media screen and (max-width: 768px) {
-  .sidebar-user {
-    display: none;
-  }
-  
-  .logout-item {
-    margin-top: 0;
-  }
+.door-btn.close:hover {
+  background: #e0e0e0;
 }
+
 /* ==================== System Settings / Device Status ==================== */
 .settings-toolbar {
   display: flex;
@@ -1043,4 +845,224 @@ tbody tr:hover {
   background: #f8d7da;
   color: #721c24;
   border: 1px solid #f5c6cb;
+}
+
+/* ==================== Sidebar User & Logout ==================== */
+.logout-item {
+  margin-top: auto;
+  background: #ffebee !important;
+  color: #d32f2f !important;
+}
+
+.logout-item:hover {
+  background: #d32f2f !important;
+  color: #fff !important;
+}
+
+.sidebar-user {
+  padding: 16px;
+  border-top: 1px solid #eee;
+  text-align: center;
+  margin-top: auto;
+}
+
+.user-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #d28b8b;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 18px;
+  margin: 0 auto 8px;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ==================== Responsive Design ==================== */
+
+/* ---- Hamburger button (hidden on desktop) ---- */
+.hamburger-btn {
+  display: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  color: #d28b8b;
+  font-size: 22px;
+  line-height: 1;
+}
+
+/* ---- Mobile top bar (hidden on desktop, fixed on mobile) ---- */
+.mobile-topbar {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 52px;
+  z-index: 100;
+}
+
+/* ---- Sidebar overlay backdrop (mobile) ---- */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 999;
+}
+
+/* ---- Tablet (≤ 1024px) ---- */
+@media screen and (max-width: 1024px) {
+  .container { padding: 20px 16px; }
+  table { min-width: 700px; }
+  th, td { padding: 10px 8px; font-size: 0.9rem; }
+  .right-panel { width: 260px; }
+}
+
+/* ---- Mobile (≤ 768px) ---- */
+@media screen and (max-width: 768px) {
+  /* Layout */
+  .layout {
+    flex-direction: row;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ซ่อน sidebar ออกจาก flex flow — ใช้ fixed แทน */
+  .sidebar {
+    flex-shrink: 0;
+    width: 0 !important;
+    overflow: hidden;
+    padding: 0 !important;
+  }
+
+  /* sidebar-user ซ่อน */
+  .sidebar-user { display: none; }
+
+  /* Hamburger visible */
+  .hamburger-btn { display: flex; align-items: center; }
+
+  /* Sidebar drawer — fixed, slides in from left */
+  .sidebar-drawer {
+    position: fixed;
+    top: 0; left: 0;
+    width: 220px !important;
+    height: 100vh;
+    z-index: 1000;
+    transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(.4,0,.2,1);
+    flex-direction: column;
+    align-items: center;
+    padding-top: 20px !important;
+    overflow: visible !important;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.12);
+    background: #fff;
+  }
+
+  .sidebar-drawer.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay.open { display: block; }
+
+  /* Sidebar menu vertical เหมือน desktop */
+  .sidebar-menu {
+    flex-direction: column;
+    margin-top: 24px;
+    gap: 14px;
+    width: 100%;
+    align-items: center;
+  }
+
+  .menu-item {
+    width: 56px;
+    height: 56px;
+  }
+
+  /* Top bar on mobile */
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #d28b8b;
+    padding: 10px 16px;
+  }
+
+  /* main ต้องมี padding-top เพื่อไม่ทับ topbar */
+  .main {
+    padding-top: 66px !important;
+  }
+
+  .mobile-topbar-title {
+    color: #fff;
+    font-weight: 700;
+    font-size: 16px;
+  }
+
+  /* Main content */
+  .main {
+    padding: 14px;
+    height: auto;
+    min-height: calc(100vh - 52px);
+  }
+
+  /* Right panel — full width below content */
+  .right-panel {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid #eee;
+    max-height: 420px;
+  }
+
+  /* Stats */
+  .stats { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 14px 10px; }
+  .stat-card b { font-size: 22px; }
+
+  /* Table → card on mobile */
+  .table-container { display: none; }
+  .mobile-cards { display: block; }
+
+  .container {
+    padding: 14px;
+    border-radius: 10px;
+  }
+
+  .page-title { font-size: 20px; }
+
+  /* Door grid */
+  .door-stats { grid-template-columns: 1fr; }
+  .rooms-grid { grid-template-columns: 1fr; }
+}
+
+/* ---- Small Mobile (≤ 480px) ---- */
+@media screen and (max-width: 480px) {
+  .stats { grid-template-columns: 1fr; }
+  .stat-card { padding: 12px; }
+
+  .user-card { padding: 12px; }
+  .user-card .card-actions { flex-direction: column; gap: 6px; }
+  .action-link { text-align: center; width: 100%; }
+  .field-label { min-width: 70px; font-size: 0.9rem; }
+
+  .door-actions { flex-direction: column; }
+}
+
+/* ---- Landscape Mobile ---- */
+@media screen and (max-width: 768px) and (orientation: landscape) {
+  .table-container { display: block; }
+  .mobile-cards { display: none; }
+  table { min-width: 600px; }
+  th, td { padding: 8px 6px; font-size: 0.8rem; }
+  .right-panel { max-height: 300px; }
 }

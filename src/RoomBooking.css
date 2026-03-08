@@ -483,111 +483,153 @@ tr:hover {
 }
 
 /* ==================== Responsive Design ==================== */
+/* ==================== Responsive ==================== */
+
+/* ---- Tablet (≤ 1024px) ---- */
 @media screen and (max-width: 1024px) {
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .booking-grid th, .booking-grid td { padding: 9px 7px; font-size: 13px; }
 }
 
+/* ---- Mobile (≤ 768px) ---- */
 @media screen and (max-width: 768px) {
-  .room-booking-layout {
-    padding: 15px;
-  }
+  .room-booking-layout { padding: 0 0 80px; }
 
+  /* Header compact */
   .booking-header {
-    padding: 20px;
+    border-radius: 0;
+    padding: 12px 16px;
+    margin-bottom: 16px;
   }
 
   .header-content {
-    flex-direction: column;
-    gap: 15px;
-    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+    align-items: center;
   }
 
-  .logo-section {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .logo-section h1 {
-    font-size: 22px;
-  }
+  .logo-section { gap: 10px; }
+  .logo-section h1 { font-size: 18px; }
+  .header-logo { height: 38px; }
 
   .user-section {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* Logout — icon only on small screens */
+  .logout-btn .logout-text { display: none; }
+  .logout-btn { padding: 8px 12px; }
+
+  /* Profile button — icon only */
+  .profileIcon { display: none; }
+
+  /* New request button full width */
+  .request-btn-main {
     width: 100%;
-    justify-content: space-between;
+    justify-content: center;
+    padding: 12px;
+    border-radius: 10px;
+    font-size: 15px;
   }
 
+  /* Stats 2 columns */
   .stats-grid {
-    grid-template-columns: 1fr;
-    gap: 15px;
-  }
-
-  .stat-card {
-    padding: 15px;
-  }
-
-  .section {
-    padding: 15px;
-  }
-
-  .modal-content {
-    padding: 20px;
-  }
-
-  .dialog-buttons {
+    grid-template-columns: repeat(2, 1fr);
     gap: 10px;
   }
+  .stat-card { padding: 14px 10px; }
+  .stat-icon { font-size: 24px; }
+  .stat-number { font-size: 24px; }
+  .stat-label { font-size: 12px; }
 
+  /* Section cards */
+  .section {
+    padding: 14px;
+    border-radius: 12px;
+    margin-bottom: 14px;
+  }
+
+  /* Booking grid horizontal scroll */
   .grid-wrapper {
-    max-height: 50vh;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-height: 55vh;
+  }
+
+  .booking-grid {
+    min-width: 480px;
   }
 
   .booking-grid th,
   .booking-grid td {
-    padding: 8px 6px;
-    font-size: 12px;
+    padding: 8px 5px;
+    font-size: 11px;
   }
+
+  /* My bookings table scroll */
+  .table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  table { min-width: 480px; }
+  th, td { padding: 9px 7px; font-size: 13px; }
+
+  /* Modal */
+  .modal-overlay { align-items: flex-end; }
+
+  .modal-content {
+    border-radius: 20px 20px 0 0;
+    padding: 20px 16px;
+    max-height: 90vh;
+    overflow-y: auto;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+  }
+
+  .dialog-content {
+    border-radius: 20px 20px 0 0;
+    padding: 20px 16px;
+    max-height: 90vh;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .dialog-buttons {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .dialog-buttons button { width: 100%; padding: 13px; }
 }
 
+/* ---- Small Mobile (≤ 480px) ---- */
 @media screen and (max-width: 480px) {
-  .header-logo {
-    height: 40px;
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+
+  .booking-header { padding: 10px 12px; }
+
+  .logo-section h1 { font-size: 15px; }
+  .header-logo { height: 32px; }
+
+  .booking-grid th,
+  .booking-grid td {
+    padding: 6px 4px;
+    font-size: 10px;
   }
 
-  .logo-section h1 {
-    font-size: 18px;
-  }
+  th, td { padding: 8px 5px; font-size: 12px; }
+}
 
-  .user-info,
-  .logout-btn {
-    font-size: 12px;
-    padding: 6px 12px;
-  }
-
-  .request-btn-main {
-    padding: 10px 20px;
-    font-size: 14px;
-  }
-
-  .stat-icon {
-    font-size: 28px;
-  }
-
-  .stat-number {
-    font-size: 22px;
-  }
-
-  .stat-label {
-    font-size: 12px;
-  }
-
-  table {
-    font-size: 12px;
-  }
-
-  th,
-  td {
-    padding: 8px 6px;
-  }
+/* ---- Landscape Mobile ---- */
+@media screen and (max-width: 768px) and (orientation: landscape) {
+  .booking-header { padding: 8px 16px; margin-bottom: 10px; }
+  .logo-section h1 { font-size: 16px; }
+  .header-logo { height: 32px; }
+  .grid-wrapper { max-height: 60vh; }
+  .stats-grid { grid-template-columns: repeat(4, 1fr); }
 }

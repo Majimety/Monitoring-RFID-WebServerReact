@@ -9,7 +9,7 @@ from flask import (
 )
 from flask_socketio import SocketIO
 from flask_cors import CORS
-from flask_restx import Api, Resource
+import threading  # Bug #5 Fix: ใช้ Lock แทน global variable เปล่า
 
 import sqlite3
 import os
@@ -20,28 +20,29 @@ from dotenv import load_dotenv
 
 from auth import auth_bp, init_auth_db
 from booking import booking_bp, init_booking_db
+from notifications import (
+    notif_bp,
+    init_notification_db,
+    notify_rfid_denied,
+    check_and_send_reminders,
+)
 
-# โหลด environment variables
 load_dotenv()
 
 # =====================
 # App Configuration
 # =====================
-
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
-# อ่านค่าจาก .env ถ้าไม่มีให้ใช้ค่า default
 app.config["SECRET_KEY"] = os.getenv(
     "SECRET_KEY", "your-secret-key-change-this-in-production"
 )
 
-# Register auth routes
 app.register_blueprint(auth_bp)
-# Register booking routes
 app.register_blueprint(booking_bp)
-
+app.register_blueprint(notif_bp)
 
 BASE_DIR = os.path.dirname(__file__)
 DB_PATH = os.path.abspath(
@@ -49,7 +50,23 @@ DB_PATH = os.path.abspath(
 )
 PHOTO_DIR = os.getenv("UPLOAD_FOLDER", "photos")
 
-latest_uuid = None
+
+# =====================
+# Bug #5 Fix: UUID state ป้องกัน race condition ด้วย Lock
+# =====================
+_uuid_lock = threading.Lock()
+_latest_uuid = None  # ใช้ผ่าน getter/setter ด้านล่างเท่านั้น
+
+
+def get_latest_uuid():
+    with _uuid_lock:
+        return _latest_uuid
+
+
+def set_latest_uuid(value):
+    global _latest_uuid
+    with _uuid_lock:
+        _latest_uuid = value
 
 
 # =====================
@@ -62,6 +79,7 @@ def get_db_connection():
 
 
 def init_db():
+    # --- users_reg + rooms ---
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -82,12 +100,11 @@ def init_db():
             )
             """
         )
-        # Rooms table — check if schema is correct first
+        # Rooms table
         cursor.execute("PRAGMA table_info(rooms)")
         existing_cols = {row["name"] for row in cursor.fetchall()}
 
         if not existing_cols:
-            # Table doesn't exist yet — create fresh
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS rooms (
@@ -98,7 +115,6 @@ def init_db():
                 """
             )
         elif "name" not in existing_cols:
-            # Old table exists without 'name' column — drop and recreate cleanly
             cursor.execute("DROP TABLE rooms")
             cursor.execute(
                 """
@@ -110,16 +126,54 @@ def init_db():
                 """
             )
         else:
-            # Table exists with 'name' column — just clean up empty/null rows
             cursor.execute("DELETE FROM rooms WHERE name IS NULL OR name = ''")
 
-        # Seed default rooms if table is empty
         cursor.execute("SELECT COUNT(*) FROM rooms")
         if cursor.fetchone()[0] == 0:
             for room_name in ["4101", "4102"]:
                 cursor.execute(
                     "INSERT OR IGNORE INTO rooms (name) VALUES (?)", (room_name,)
                 )
+        conn.commit()
+
+    # --- access_logs ---
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        # ตรวจสอบว่าตาราง access_logs มี column ครบหรือไม่
+        # ถ้าสร้างไม่สมบูรณ์จากครั้งก่อน ให้ drop แล้วสร้างใหม่
+        cursor.execute("PRAGMA table_info(access_logs)")
+        log_cols = {row["name"] for row in cursor.fetchall()}
+
+        if log_cols and "uuid" not in log_cols:
+            # ตารางเก่าสร้างไม่สมบูรณ์ — drop แล้วสร้างใหม่
+            cursor.execute("DROP TABLE access_logs")
+            conn.commit()
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS access_logs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                uuid        TEXT NOT NULL,
+                user_id     TEXT,
+                name        TEXT,
+                email       TEXT,
+                role        TEXT,
+                room        TEXT,
+                result      TEXT NOT NULL DEFAULT 'denied',
+                method      TEXT NOT NULL DEFAULT 'rfid',
+                scanned_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.commit()
+
+        # สร้าง index หลัง commit ให้แน่ใจว่า column พร้อมแล้ว
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_logs_uuid ON access_logs(uuid)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_logs_room ON access_logs(room)")
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_logs_scanned_at ON access_logs(scanned_at)"
+        )
         conn.commit()
 
 
@@ -137,10 +191,6 @@ def _ensure_csv_dir():
 
 
 def rebuild_csv_from_db():
-    """
-    เขียน users.csv และ admins.csv ใหม่ทั้งหมดจากข้อมูลใน DB
-    เรียกใช้หลังจาก update หรือ delete เพื่อให้ CSV ตรงกับ DB เสมอ
-    """
     _ensure_csv_dir()
     try:
         with get_db_connection() as conn:
@@ -156,14 +206,12 @@ def rebuild_csv_from_db():
             )
             all_users = cursor.fetchall()
 
-        # เขียน users.csv (ทุก role)
         with open(USERS_CSV, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(CSV_HEADER)
             for u in all_users:
                 writer.writerow([u[0], u[1], u[2], u[3], u[4], u[5], u[6]])
 
-        # เขียน admins.csv (เฉพาะ role == 'admin')
         admin_users = [u for u in all_users if u[6] == "admin"]
         with open(ADMINS_CSV, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -176,10 +224,6 @@ def rebuild_csv_from_db():
 
 
 def append_user_to_csv(uuid, user_id, first_name, last_name, email, role):
-    """
-    เพิ่มแถว user ใหม่ต่อท้าย users.csv
-    ถ้า role == 'admin' ให้เพิ่มใน admins.csv ด้วย
-    """
     _ensure_csv_dir()
     row = [
         uuid,
@@ -191,7 +235,6 @@ def append_user_to_csv(uuid, user_id, first_name, last_name, email, role):
         role,
     ]
     try:
-        # users.csv — เพิ่มทุก role
         file_exists = os.path.isfile(USERS_CSV)
         with open(USERS_CSV, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -199,7 +242,6 @@ def append_user_to_csv(uuid, user_id, first_name, last_name, email, role):
                 writer.writerow(CSV_HEADER)
             writer.writerow(row)
 
-        # admins.csv — เพิ่มเฉพาะ admin
         if role == "admin":
             file_exists = os.path.isfile(ADMINS_CSV)
             with open(ADMINS_CSV, "a", newline="", encoding="utf-8") as f:
@@ -207,9 +249,43 @@ def append_user_to_csv(uuid, user_id, first_name, last_name, email, role):
                 if not file_exists:
                     writer.writerow(CSV_HEADER)
                 writer.writerow(row)
-
     except Exception as e:
         print(f"[CSV] append_user_to_csv error: {e}")
+
+
+# =====================
+# Access Log Helper
+# =====================
+def write_access_log(
+    uuid: str, user: dict | None, room: str, result: str, method: str = "rfid"
+):
+    """
+    บันทึก access log ทุกครั้งที่มีการสแกน RFID
+    result: 'granted' | 'denied'
+    method: 'rfid' | 'web'
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO access_logs (uuid, user_id, name, email, role, room, result, method)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    uuid,
+                    user["user_id"] if user else None,
+                    f"{user['first_name']} {user['last_name']}" if user else None,
+                    user["email"] if user else None,
+                    user["role"] if user else None,
+                    room or None,
+                    result,
+                    method,
+                ),
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"[LOG] write_access_log error: {e}")
 
 
 # =====================
@@ -221,35 +297,13 @@ def get_users():
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT
-                    id,
-                    uuid,
-                    user_id,
-                    first_name,
-                    last_name,
-                    email,
-                    role
+                SELECT id, uuid, user_id, first_name, last_name, email, role
                 FROM users_reg
                 WHERE is_deleted = 0
                 ORDER BY created_at DESC
                 """
             )
-
-            rows = cursor.fetchall()
-
-            return [
-                {
-                    "id": row["id"],
-                    "uuid": row["uuid"],
-                    "user_id": row["user_id"],
-                    "first_name": row["first_name"],
-                    "last_name": row["last_name"],
-                    "email": row["email"],
-                    "role": row["role"],
-                }
-                for row in rows
-            ]
-
+            return [dict(row) for row in cursor.fetchall()]
     except sqlite3.Error as e:
         print(f"Database error in get_users: {e}")
         return []
@@ -258,7 +312,6 @@ def get_users():
 def get_user_by_uuid(uuid):
     if not uuid:
         return None
-
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -271,12 +324,7 @@ def get_user_by_uuid(uuid):
                 (uuid,),
             )
             row = cursor.fetchone()
-
-            if not row:
-                return None
-
-            return dict(row)
-
+            return dict(row) if row else None
     except sqlite3.Error as e:
         print(f"Database error in get_user_by_uuid: {e}")
         return None
@@ -285,14 +333,11 @@ def get_user_by_uuid(uuid):
 def add_user(uuid, user_id, first_name, last_name, email, role="student"):
     if not all([uuid, user_id, first_name, last_name, email]):
         return {"success": False, "message": "กรุณากรอกข้อมูลให้ครบถ้วน"}
-
     if "@" not in email or "." not in email:
         return {"success": False, "message": "รูปแบบ email ไม่ถูกต้อง"}
-
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-
             cursor.execute(
                 """
                 SELECT COUNT(*) FROM users_reg
@@ -300,7 +345,6 @@ def add_user(uuid, user_id, first_name, last_name, email, role="student"):
                 """,
                 (uuid, user_id, email),
             )
-
             if cursor.fetchone()[0] > 0:
                 return {
                     "success": False,
@@ -323,21 +367,15 @@ def add_user(uuid, user_id, first_name, last_name, email, role="student"):
                     role,
                 ),
             )
-
             conn.commit()
             user_id_created = cursor.lastrowid
 
-        # เขียน CSV (optional - don't fail if error)
         try:
             append_user_to_csv(uuid, user_id, first_name, last_name, email, role)
         except Exception:
-            pass  # CSV write failure should not block user creation
+            pass
 
-        return {
-            "success": True,
-            "message": "เพิ่มผู้ใช้สำเร็จ",
-            "user_id": user_id_created,
-        }
+        return {"success": True, "message": "เพิ่มผู้ใช้สำเร็จ", "user_id": user_id_created}
 
     except sqlite3.Error as e:
         return {"success": False, "message": f"เกิดข้อผิดพลาดในฐานข้อมูล: {str(e)}"}
@@ -348,11 +386,7 @@ def delete_user(id):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                """
-                UPDATE users_reg
-                SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
+                "UPDATE users_reg SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (id,),
             )
             conn.commit()
@@ -361,9 +395,7 @@ def delete_user(id):
         if affected > 0:
             rebuild_csv_from_db()
             return {"success": True, "message": "ลบผู้ใช้สำเร็จ"}
-
         return {"success": False, "message": "ไม่สามารถลบผู้ใช้ได้"}
-
     except sqlite3.Error as e:
         return {"success": False, "message": f"เกิดข้อผิดพลาด: {str(e)}"}
 
@@ -406,37 +438,18 @@ def check_is_user_id_exist_except_id(user_id, current_id):
 
 
 # =====================
-# Routes
+# Door Command State (per-room)
 # =====================
-
-# global state — per-room door commands and last seen timestamps
 room_commands = {}  # { room_name: "open" | "close" | "idle" }
 room_last_seen = {}  # { room_name: datetime }
 
 
+# =====================
+# Routes
+# =====================
 @app.route("/admin")
 def index():
     return render_template("index.html")
-
-
-@app.route("/admin/dashboard-content")
-def dashboard_content():
-    return render_template("dashboard_content.html")
-
-
-@app.route("/admin/booking-requests")
-def admin_booking_requests():
-    return render_template("admin_booking_requests.html")
-
-
-@app.route("/admin/access-logs")
-def access_logs_route():
-    return render_template("access_logs.html")
-
-
-@app.route("/admin/system-settings")
-def system_settings_route():
-    return render_template("system_settings.html")
 
 
 @app.route("/api/door/open", methods=["POST"])
@@ -466,21 +479,35 @@ def get_door_command():
 
 @app.route("/api/send_uuid", methods=["POST"])
 def get_uuid():
-    global latest_uuid
     data = request.get_json()
-    latest_uuid = data.get("uuid")
+    uuid = data.get("uuid")
+    # รับ room จาก ESP32 (ถ้าส่งมา) — backward compatible ถ้าไม่ส่งก็ยังใช้ได้
+    room = data.get("room", "")
 
-    user = get_user_by_uuid(latest_uuid)
+    # Bug #5 Fix: ใช้ thread-safe setter
+    set_latest_uuid(uuid)
+
+    user = get_user_by_uuid(uuid)
+    result = "granted" if user else "denied"
+
+    # บันทึก Access Log ทุกครั้งที่สแกน
+    write_access_log(uuid=uuid, user=user, room=room, result=result, method="rfid")
+
+    # Trigger notification เมื่อ RFID denied
+    if not user:
+        notify_rfid_denied(uuid=uuid, room=room)
 
     socketio.emit(
         "uuid_update",
         {
-            "uuid": latest_uuid,
+            "uuid": uuid,
             "user_id": user["user_id"] if user else "",
             "first_name": user["first_name"] if user else "",
             "last_name": user["last_name"] if user else "",
             "email": user["email"] if user else "",
             "role": user["role"] if user else "",
+            "room": room,
+            "result": result,
         },
     )
 
@@ -493,14 +520,14 @@ def get_uuid():
 
 @app.route("/api/latest_uuid", methods=["GET"])
 def get_latest_uid():
-    if not latest_uuid:
+    uuid = get_latest_uuid()  # Bug #5 Fix: thread-safe getter
+    if not uuid:
         return (
             jsonify({"success": False, "message": "ไม่มี UUID ล่าสุด กรุณาสแกน RFID ก่อน"}),
             404,
         )
 
-    user = get_user_by_uuid(latest_uuid)
-
+    user = get_user_by_uuid(uuid)
     if user:
         return jsonify({"success": True, "has_user_data": True, **user})
 
@@ -508,7 +535,7 @@ def get_latest_uid():
         {
             "success": True,
             "has_user_data": False,
-            "uuid": latest_uuid,
+            "uuid": uuid,
             "message": "UUID ยังไม่ได้ลงทะเบียน",
         }
     )
@@ -516,21 +543,17 @@ def get_latest_uid():
 
 @app.route("/api/reset_uuid", methods=["POST"])
 def reset_uuid():
-    global latest_uuid
-    latest_uuid = None
+    set_latest_uuid(None)  # Bug #5 Fix: thread-safe setter
     return jsonify({"success": True})
 
 
 @app.route("/api/upload", methods=["POST"])
 def upload():
     os.makedirs(PHOTO_DIR, exist_ok=True)
-
     image_name = f"{uuid4()}.jpg"
     file_path = os.path.join(PHOTO_DIR, image_name)
-
     with open(file_path, "wb") as f:
         f.write(request.data)
-
     return jsonify({"success": True, "path_file": f"{PHOTO_DIR}/{image_name}"})
 
 
@@ -541,9 +564,6 @@ def serve_photo(file_name):
 
 @app.route("/api/add_user", methods=["POST"])
 def add_user_route():
-    global latest_uuid
-
-    # รองรับทั้ง form data และ JSON
     if request.is_json:
         data = request.get_json()
         uuid = data.get("uuid", "").strip()
@@ -567,17 +587,13 @@ def add_user_route():
         return jsonify({"success": False, "message": "userId นี้มีอยู่แล้ว"})
 
     result = add_user(uuid, user_id, first_name, last_name, email, role)
-
     if result["success"]:
-        latest_uuid = None
-        return jsonify(result), 200
-
-    return jsonify(result), 200
+        set_latest_uuid(None)  # Bug #5 Fix: thread-safe
+    return jsonify(result)
 
 
 @app.route("/api/users", methods=["GET"])
 def get_users_api():
-    """Get all users - ใช้โดย React"""
     users = get_users()
     return jsonify({"success": True, "users": users})
 
@@ -590,60 +606,26 @@ def delete_user_route(id):
 
 @app.route("/api/user/<int:id>", methods=["GET"])
 def get_single_user(id):
-    """ดึงข้อมูล user เดียวสำหรับ edit (ใช้โดย React)"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 SELECT id, uuid, user_id, first_name, last_name, name, email, role
-                FROM users_reg
-                WHERE id = ? AND is_deleted = 0
+                FROM users_reg WHERE id = ? AND is_deleted = 0
                 """,
                 (id,),
             )
             row = cursor.fetchone()
-
             if row:
                 return jsonify(dict(row))
             return jsonify({"error": "User not found"}), 404
-
     except sqlite3.Error as e:
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/edit_user/<int:id>")
-def edit_user_route(id):
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT id, uuid, user_id, first_name, last_name, email
-            FROM users_reg
-            WHERE id = ?
-            """,
-            (id,),
-        )
-        row = cursor.fetchone()
-
-    if not row:
-        return redirect(url_for("index"))
-
-    user = {
-        "id": row["id"],
-        "uuid": row["uuid"],
-        "user_id": row["user_id"],
-        "first_name": row["first_name"],
-        "last_name": row["last_name"],
-        "email": row["email"],
-    }
-
-    return render_template("edit_user.html", user=user)
-
-
 @app.route("/api/update_user/<int:id>", methods=["POST", "PUT"])
 def update_user_route(id):
-    # รองรับทั้ง form data และ JSON
     if request.is_json:
         data = request.get_json()
         uuid = data.get("uuid")
@@ -669,7 +651,7 @@ def update_user_route(id):
             cursor.execute(
                 """
                 UPDATE users_reg
-                SET user_id = ?, first_name = ?, last_name = ?, 
+                SET user_id = ?, first_name = ?, last_name = ?,
                     name = ?, email = ?, role = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
@@ -692,19 +674,11 @@ def update_user_route(id):
         return jsonify({"success": False, "message": str(e)}), 500
 
 
-@app.route("/api/table")
-def table_route():
-    return render_template("table.html", users=get_users())
-
-
 # =====================
 # Rooms API
 # =====================
-
-
 @app.route("/api/rooms", methods=["GET"])
 def get_rooms():
-    """Return list of all rooms."""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -719,7 +693,6 @@ def get_rooms():
 
 @app.route("/api/rooms", methods=["POST"])
 def add_room():
-    """Add a new room."""
     data = request.get_json(silent=True) or {}
     name = data.get("name", "").strip()
     if not name:
@@ -729,8 +702,12 @@ def add_room():
             cursor = conn.cursor()
             cursor.execute("INSERT INTO rooms (name) VALUES (?)", (name,))
             conn.commit()
-            new_id = cursor.lastrowid
-            return jsonify({"success": True, "room": {"id": new_id, "name": name}}), 201
+            return (
+                jsonify(
+                    {"success": True, "room": {"id": cursor.lastrowid, "name": name}}
+                ),
+                201,
+            )
     except sqlite3.IntegrityError:
         return jsonify({"error": f"Room '{name}' already exists"}), 409
     except sqlite3.Error as e:
@@ -739,7 +716,6 @@ def add_room():
 
 @app.route("/api/rooms/<int:room_id>", methods=["PUT"])
 def update_room(room_id):
-    """Rename a room."""
     data = request.get_json(silent=True) or {}
     name = data.get("name", "").strip()
     if not name:
@@ -760,7 +736,6 @@ def update_room(room_id):
 
 @app.route("/api/rooms/<int:room_id>", methods=["DELETE"])
 def delete_room(room_id):
-    """Delete a room."""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -777,22 +752,196 @@ def delete_room(room_id):
 def get_door_status():
     room = request.args.get("room", "")
     last = room_last_seen.get(room)
+    is_online = False
     if last:
         seconds_ago = (datetime.utcnow() - last).total_seconds()
-        is_online = seconds_ago < 5  # ถ้า ESP32 poll ทุก 1 วิ ให้ tolerance 5 วิ
-    else:
-        is_online = False
+        is_online = seconds_ago < 5
     return jsonify(
         {"door_status": "LOCKED", "door_online": is_online, "rfid_online": is_online}
     )
 
 
+# =====================
+# Access Logs API
+# =====================
+@app.route("/api/access-logs", methods=["GET"])
+def get_access_logs():
+    """
+    ดึง access logs — Admin only (ผ่าน JWT header)
+    Query params:
+      - room   : กรองตามห้อง
+      - result : 'granted' | 'denied' | 'all' (default: all)
+      - limit  : จำนวนแถว (default: 200, max: 1000)
+      - offset : pagination offset (default: 0)
+      - search : ค้นหาจาก uuid / ชื่อ / email
+    """
+    # ตรวจ JWT token
+    token = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+
+    if not token:
+        return jsonify({"error": "Token is missing"}), 401
+
+    try:
+        import jwt as pyjwt
+
+        data = pyjwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
+        email = data.get("email", "")
+        if not email.endswith("@kku.ac.th"):
+            return jsonify({"error": "ไม่มีสิทธิ์เข้าถึง"}), 403
+    except Exception:
+        return jsonify({"error": "Invalid token"}), 401
+
+    # Query params
+    room_filter = request.args.get("room", "").strip()
+    result_filter = request.args.get("result", "all").strip()
+    search = request.args.get("search", "").strip()
+    try:
+        limit = min(int(request.args.get("limit", 200)), 1000)
+        offset = max(int(request.args.get("offset", 0)), 0)
+    except ValueError:
+        limit, offset = 200, 0
+
+    # Build query dynamically
+    conditions = []
+    params = []
+
+    if room_filter:
+        conditions.append("room = ?")
+        params.append(room_filter)
+
+    if result_filter in ("granted", "denied"):
+        conditions.append("result = ?")
+        params.append(result_filter)
+
+    if search:
+        conditions.append(
+            "(uuid LIKE ? OR name LIKE ? OR email LIKE ? OR user_id LIKE ?)"
+        )
+        like = f"%{search}%"
+        params.extend([like, like, like, like])
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+
+            # total count
+            cursor.execute(f"SELECT COUNT(*) FROM access_logs {where}", params)
+            total = cursor.fetchone()[0]
+
+            # paginated rows
+            cursor.execute(
+                f"""
+                SELECT id, uuid, user_id, name, email, role,
+                       room, result, method, scanned_at
+                FROM access_logs
+                {where}
+                ORDER BY scanned_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                params + [limit, offset],
+            )
+            logs = [dict(row) for row in cursor.fetchall()]
+
+        return jsonify({"success": True, "total": total, "logs": logs})
+
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/access-logs/stats", methods=["GET"])
+def get_access_log_stats():
+    """สถิติรวม access logs สำหรับแสดงบน dashboard"""
+    token = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    if not token:
+        return jsonify({"error": "Token is missing"}), 401
+    try:
+        import jwt as pyjwt
+
+        data = pyjwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
+        if not data.get("email", "").endswith("@kku.ac.th"):
+            return jsonify({"error": "ไม่มีสิทธิ์เข้าถึง"}), 403
+    except Exception:
+        return jsonify({"error": "Invalid token"}), 401
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT COUNT(*) FROM access_logs")
+            total = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM access_logs WHERE result = 'granted'")
+            granted = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM access_logs WHERE result = 'denied'")
+            denied = cursor.fetchone()[0]
+
+            # วันนี้
+            cursor.execute(
+                "SELECT COUNT(*) FROM access_logs WHERE DATE(scanned_at) = DATE('now', 'localtime')"
+            )
+            today = cursor.fetchone()[0]
+
+            # สแกนต่อห้อง
+            cursor.execute(
+                """
+                SELECT room, COUNT(*) as count
+                FROM access_logs
+                WHERE room IS NOT NULL AND room != ''
+                GROUP BY room
+                ORDER BY count DESC
+                """
+            )
+            by_room = [
+                {"room": r["room"], "count": r["count"]} for r in cursor.fetchall()
+            ]
+
+        return jsonify(
+            {
+                "success": True,
+                "stats": {
+                    "total": total,
+                    "granted": granted,
+                    "denied": denied,
+                    "today": today,
+                    "by_room": by_room,
+                },
+            }
+        )
+
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     init_db()
     init_auth_db()
-    init_booking_db()  # Initialize booking database
+    init_booking_db()
+    init_notification_db()
 
-    # อ่านค่าจาก .env
+    # Reminder scheduler — เช็คทุก 5 นาที
+    import sched, time as _time
+
+    def _reminder_loop():
+        while True:
+            try:
+                check_and_send_reminders()
+            except Exception as e:
+                print(f"[SCHEDULER] error: {e}")
+            _time.sleep(300)  # 5 นาที
+
+    reminder_thread = threading.Thread(target=_reminder_loop, daemon=True)
+    reminder_thread.start()
+    print(" Reminder scheduler started (every 5 min)")
+
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "True").lower() == "true"
@@ -801,10 +950,4 @@ if __name__ == "__main__":
     print(f" Environment: {os.getenv('FLASK_ENV', 'development')}")
     print(f" Debug mode: {debug}\n")
 
-    socketio.run(
-        app,
-        debug=debug,
-        use_reloader=False,
-        host=host,
-        port=port,
-    )
+    socketio.run(app, debug=debug, use_reloader=False, host=host, port=port)

@@ -1,9 +1,58 @@
 import React, { useState, useEffect } from 'react';
 
+// ==================== Remark Modal (Bug #7 Fix) ====================
+const RemarkModal = ({ isOpen, mode, onConfirm, onCancel }) => {
+  const [remark, setRemark] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
+  React.useEffect(() => { if (isOpen) setRemark(''); }, [isOpen]);
+  if (!isOpen) return null;
+  const isApprove = mode === 'approve';
+  const handleConfirm = async () => {
+    if (!isApprove && !remark.trim()) return;
+    setLoading(true);
+    await onConfirm(remark.trim());
+    setLoading(false);
+  };
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)' }} onClick={onCancel} />
+      <div style={{ position: 'relative', background: '#fff', borderRadius: '12px', padding: '28px', width: '400px', maxWidth: '90vw', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}>
+        <h3 style={{ margin: '0 0 6px', color: '#333', fontSize: '18px' }}>{isApprove ? '✅ อนุมัติการจอง' : '❌ ปฏิเสธการจอง'}</h3>
+        <p style={{ margin: '0 0 16px', color: '#666', fontSize: '14px' }}>{isApprove ? 'ระบุหมายเหตุ (ถ้ามี)' : 'กรุณาระบุเหตุผลในการปฏิเสธ'}</p>
+        <textarea autoFocus value={remark} onChange={e => setRemark(e.target.value)}
+          placeholder={isApprove ? 'หมายเหตุ (ไม่บังคับ)' : 'เหตุผลในการปฏิเสธ *'} rows={3}
+          style={{ width: '100%', padding: '10px', border: `1px solid ${!isApprove && !remark.trim() ? '#ffcdd2' : '#ddd'}`, borderRadius: '8px', fontSize: '14px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
+        />
+        {!isApprove && !remark.trim() && <p style={{ color: '#d32f2f', fontSize: '12px', margin: '4px 0 0' }}>* จำเป็นต้องระบุเหตุผล</p>}
+        <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+          <button onClick={handleConfirm} disabled={loading || (!isApprove && !remark.trim())}
+            style={{ flex: 1, padding: '11px', borderRadius: '8px', border: 'none', background: isApprove ? '#4caf50' : '#e74c3c', color: '#fff', fontWeight: '600', fontSize: '14px', cursor: 'pointer', opacity: loading || (!isApprove && !remark.trim()) ? 0.6 : 1 }}>
+            {loading ? '...' : isApprove ? 'อนุมัติ' : 'ปฏิเสธ'}
+          </button>
+          <button onClick={onCancel} disabled={loading}
+            style={{ flex: 1, padding: '11px', borderRadius: '8px', border: '1px solid #ddd', background: '#fff', color: '#333', fontWeight: '600', fontSize: '14px', cursor: 'pointer' }}>
+            ยกเลิก
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const BookingsPage = () => {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all'); // 'all', 'pending', 'approved', 'rejected'
+  const [filter, setFilter] = useState('all');
+
+  // Bug #7 Fix: Modal state แทน prompt/alert
+  const [remarkModal, setRemarkModal] = useState({ open: false, mode: '', bookingId: null });
+  const [confirmDelete, setConfirmDelete] = useState({ open: false, bookingId: null });
+  const [toast, setToast] = useState({ message: '', type: '' });
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast({ message: '', type: '' }), 3000);
+  };
 
   useEffect(() => {
     fetchBookings();
@@ -30,12 +79,21 @@ const BookingsPage = () => {
     }
   };
 
-  const handleApprove = async (bookingId) => {
-    const remark = prompt('หมายเหตุ (ถ้ามี):');
-    if (remark === null) return; // ยกเลิก
+  const handleApprove = (bookingId) => {
+    setRemarkModal({ open: true, mode: 'approve', bookingId });
+  };
 
+  const handleReject = (bookingId) => {
+    setRemarkModal({ open: true, mode: 'reject', bookingId });
+  };
+
+  const handleRemarkConfirm = async (remark) => {
+    const { mode, bookingId } = remarkModal;
+    setRemarkModal({ open: false, mode: '', bookingId: null });
+
+    const endpoint = mode === 'approve' ? 'approve' : 'reject';
     try {
-      const response = await fetch(`/api/bookings/${bookingId}/approve`, {
+      const response = await fetch(`/api/bookings/${bookingId}/${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -43,71 +101,39 @@ const BookingsPage = () => {
         },
         body: JSON.stringify({ remark })
       });
-
       const data = await response.json();
-      
       if (response.ok) {
-        alert('อนุมัติการจองสำเร็จ');
+        showToast(mode === 'approve' ? 'อนุมัติการจองสำเร็จ' : 'ปฏิเสธการจองสำเร็จ', 'success');
         fetchBookings();
       } else {
-        alert(data.message || 'เกิดข้อผิดพลาด');
+        showToast(data.message || 'เกิดข้อผิดพลาด', 'error');
       }
-    } catch (error) {
-      console.error('Error approving booking:', error);
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    } catch {
+      showToast('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
     }
   };
 
-  const handleReject = async (bookingId) => {
-    const remark = prompt('เหตุผลในการปฏิเสธ:');
-    if (!remark) return;
-
-    try {
-      const response = await fetch(`/api/bookings/${bookingId}/reject`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ remark })
-      });
-
-      const data = await response.json();
-      
-      if (response.ok) {
-        alert('ปฏิเสธการจองสำเร็จ');
-        fetchBookings();
-      } else {
-        alert(data.message || 'เกิดข้อผิดพลาด');
-      }
-    } catch (error) {
-      console.error('Error rejecting booking:', error);
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
-    }
+  const handleDelete = (bookingId) => {
+    setConfirmDelete({ open: true, bookingId });
   };
 
-  const handleDelete = async (bookingId) => {
-    if (!window.confirm('คุณต้องการลบการจองนี้หรือไม่?')) return;
-
+  const handleDeleteConfirm = async () => {
+    const { bookingId } = confirmDelete;
+    setConfirmDelete({ open: false, bookingId: null });
     try {
       const response = await fetch(`/api/bookings/${bookingId}/delete`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
-
       const data = await response.json();
-      
       if (response.ok) {
-        alert('ลบการจองสำเร็จ');
+        showToast('ลบการจองสำเร็จ', 'success');
         fetchBookings();
       } else {
-        alert(data.message || 'เกิดข้อผิดพลาด');
+        showToast(data.message || 'เกิดข้อผิดพลาด', 'error');
       }
-    } catch (error) {
-      console.error('Error deleting booking:', error);
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    } catch {
+      showToast('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
     }
   };
 
@@ -143,14 +169,49 @@ const BookingsPage = () => {
   }
 
   return (
-    <div>
-      {/* Page Title */}
-      <div className="page-title-box">
-        <h1 className="page-title">Booking Requests</h1>
-      </div>
+    <>
+      {/* Remark Modal */}
+      {remarkModal.open && (
+        <RemarkModal
+          isOpen={remarkModal.open}
+          mode={remarkModal.mode}
+          onConfirm={handleRemarkConfirm}
+          onCancel={() => setRemarkModal({ open: false, mode: '', bookingId: null })}
+        />
+      )}
 
-      {/* Statistics */}
-      <div className="stats" style={{ marginBottom: '24px' }}>
+      {/* Delete Confirm Modal */}
+      {confirmDelete.open && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)' }} onClick={() => setConfirmDelete({ open: false, bookingId: null })} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: '12px', padding: '28px', width: '360px', maxWidth: '90vw', boxShadow: '0 10px 40px rgba(0,0,0,0.2)', textAlign: 'center' }}>
+            <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: '36px', color: '#f39c12', marginBottom: '12px' }}></i>
+            <h3 style={{ margin: '0 0 8px', color: '#333' }}>ยืนยันการลบ</h3>
+            <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px' }}>คุณต้องการลบการจองนี้หรือไม่? ไม่สามารถย้อนกลับได้</p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={handleDeleteConfirm} style={{ flex: 1, padding: '11px', borderRadius: '8px', border: 'none', background: '#e74c3c', color: '#fff', fontWeight: '600', cursor: 'pointer' }}>ลบ</button>
+              <button onClick={() => setConfirmDelete({ open: false, bookingId: null })} style={{ flex: 1, padding: '11px', borderRadius: '8px', border: '1px solid #ddd', background: '#fff', color: '#333', fontWeight: '600', cursor: 'pointer' }}>ยกเลิก</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast.message && (
+        <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 3000, background: toast.type === 'success' ? '#4caf50' : '#e74c3c', color: '#fff', padding: '14px 20px', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: '14px', fontWeight: '500' }}>
+          <i className={`fa-solid ${toast.type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}`} style={{ marginRight: '8px' }}></i>
+          {toast.message}
+        </div>
+      )}
+
+      <div>
+        {/* Page Title */}
+        <div className="page-title-box">
+          <h1 className="page-title">Booking Requests</h1>
+        </div>
+
+        {/* Statistics */}
+        <div className="stats" style={{ marginBottom: '24px' }}>
         <div className="stat-card">
           <div className="label">Total Requests</div>
           <b>{stats.total}</b>
@@ -280,6 +341,7 @@ const BookingsPage = () => {
         </div>
       </div>
     </div>
+    </>
   );
 };
 
