@@ -301,16 +301,14 @@ def notify_rfid_denied(uuid: str, room: str):
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT email FROM admin_users WHERE is_active = 1 AND email LIKE '%@kku.ac.th'"
-            )
+            cursor.execute("SELECT email FROM admin_users WHERE is_active = 1")
             admins = [row["email"] for row in cursor.fetchall()]
 
         if not admins:
             return
 
         title = "⚠️ RFID Scan Denied"
-        message = f"UUID {uuid} พยายามเข้าห้อง {room or 'ไม่ระบุ'} แต่ไม่ผ่านการตรวจสอบ"
+        message = f"UUID: {uuid} พยายามเข้าห้อง {room or 'ไม่ระบุ'} แต่ยังไม่ได้ลงทะเบียน"
 
         for admin_email in admins:
             create_notification(

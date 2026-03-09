@@ -330,6 +330,27 @@ def get_user_by_uuid(uuid):
         return None
 
 
+def get_user_by_email(email):
+    if not email:
+        return None
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT NULL AS user_id, first_name, last_name, email, role FROM admin_users WHERE email = ? AND is_active = 1",
+                (email,),
+            )
+            row = cursor.fetchone()
+            if row:
+                d = dict(row)
+                d["uuid"] = "WEB"
+                return d
+            return None
+    except sqlite3.Error as e:
+        print(f"Database error in get_user_by_email: {e}")
+        return None
+
+
 def add_user(uuid, user_id, first_name, last_name, email, role="student"):
     if not all([uuid, user_id, first_name, last_name, email]):
         return {"success": False, "message": "กรุณากรอกข้อมูลให้ครบถ้วน"}
@@ -457,6 +478,22 @@ def door_open():
     data = request.get_json(silent=True) or {}
     room = data.get("room", "")
     room_commands[room] = "open"
+    try:
+        import jwt as pyjwt
+
+        auth_header = request.headers.get("Authorization", "")
+        token = auth_header.split(" ")[1] if auth_header.startswith("Bearer ") else None
+        admin_user = None
+        if token:
+            jwt_data = pyjwt.decode(
+                token, app.config["SECRET_KEY"], algorithms=["HS256"]
+            )
+            admin_user = get_user_by_email(jwt_data.get("email", ""))
+        write_access_log(
+            uuid="WEB", user=admin_user, room=room, result="granted", method="web"
+        )
+    except Exception as e:
+        print(f"[LOG] door_open log error: {e}")
     return jsonify({"success": True, "message": "Door open command sent"})
 
 
@@ -465,6 +502,22 @@ def door_close():
     data = request.get_json(silent=True) or {}
     room = data.get("room", "")
     room_commands[room] = "close"
+    try:
+        import jwt as pyjwt
+
+        auth_header = request.headers.get("Authorization", "")
+        token = auth_header.split(" ")[1] if auth_header.startswith("Bearer ") else None
+        admin_user = None
+        if token:
+            jwt_data = pyjwt.decode(
+                token, app.config["SECRET_KEY"], algorithms=["HS256"]
+            )
+            admin_user = get_user_by_email(jwt_data.get("email", ""))
+        write_access_log(
+            uuid="WEB", user=admin_user, room=room, result="granted", method="web"
+        )
+    except Exception as e:
+        print(f"[LOG] door_close log error: {e}")
     return jsonify({"success": True, "message": "Door close command sent"})
 
 
@@ -497,7 +550,11 @@ def get_uuid():
 
     # Trigger notification เมื่อ RFID denied — เฉพาะ door เท่านั้น ไม่แจ้งตอน register
     if not user and source != "register":
+        print(
+            f"[DEBUG] calling notify_rfid_denied: uuid={uuid} room={room} source={source}"
+        )
         notify_rfid_denied(uuid=uuid, room=room)
+        print(f"[DEBUG] notify_rfid_denied done")
 
     socketio.emit(
         "uuid_update",
@@ -510,6 +567,7 @@ def get_uuid():
             "role": user["role"] if user else "",
             "room": room,
             "result": result,
+            "source": source,
         },
     )
 

@@ -237,14 +237,18 @@ const BookingsPage = () => {
             key={status}
             onClick={() => setFilter(status)}
             style={{
-              padding: '8px 16px',
-              borderRadius: '6px',
-              border: filter === status ? '2px solid #d28b8b' : '1px solid #ddd',
-              background: filter === status ? '#d28b8b' : 'white',
-              color: filter === status ? 'white' : '#333',
+              padding: '8px 18px',
+              borderRadius: '8px',
+              border: filter === status ? '2px solid #fff' : '1px solid #ccc',
+              background: filter === status ? '#c0675f' : 'white',
+              color: filter === status ? 'white' : '#555',
               cursor: 'pointer',
-              fontWeight: filter === status ? '600' : '400',
-              textTransform: 'capitalize'
+              fontWeight: filter === status ? '700' : '400',
+              textTransform: 'capitalize',
+              boxShadow: filter === status ? '0 0 0 3px #c0675f55, inset 0 1px 3px rgba(0,0,0,0.2)' : 'none',
+              outline: filter === status ? '2px solid #c0675f' : 'none',
+              transform: filter === status ? 'scale(1.05)' : 'scale(1)',
+              transition: 'all 0.15s',
             }}
           >
             {status === 'all' ? 'All' : status}

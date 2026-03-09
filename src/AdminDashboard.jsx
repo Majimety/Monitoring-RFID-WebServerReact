@@ -298,18 +298,19 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
             <input type="text" name="first_name" placeholder="First Name" value={formData.first_name} onChange={handleInputChange} required />
             <input type="text" name="last_name" placeholder="Last Name" value={formData.last_name} onChange={handleInputChange} required />
             <input type="email" name="email" placeholder="Email" value={formData.email} onChange={handleInputChange} required />
-            <div className="role-selector">
-              <label>Role:</label>
-              <div className="role-options">
-                <button type="button" className={`role-btn ${formData.role === 'student' ? 'active' : ''}`} onClick={() => setFormData(prev => ({ ...prev, role: 'student' }))}>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontWeight: 700, color: '#333', fontSize: 14, display: 'block', marginBottom: 8 }}>Role:</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" onClick={() => setFormData(prev => ({ ...prev, role: 'student' }))} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: '2px solid', borderColor: formData.role === 'student' ? '#9b5e5e' : '#ddd', background: formData.role === 'student' ? '#9b5e5e' : '#fff', color: formData.role === 'student' ? '#fff' : '#888', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all 0.15s' }}>
                   <i className="fa-solid fa-user-graduate"></i><span>Student</span>
                 </button>
-                <button type="button" className={`role-btn ${formData.role === 'admin' ? 'active' : ''}`} onClick={() => setFormData(prev => ({ ...prev, role: 'admin' }))}>
+                <button type="button" onClick={() => setFormData(prev => ({ ...prev, role: 'admin' }))} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: '2px solid', borderColor: formData.role === 'admin' ? '#9b5e5e' : '#ddd', background: formData.role === 'admin' ? '#9b5e5e' : '#fff', color: formData.role === 'admin' ? '#fff' : '#888', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all 0.15s' }}>
                   <i className="fa-solid fa-user-shield"></i><span>Admin</span>
                 </button>
               </div>
             </div>
             <button type="submit">Add RFID</button>
+            <button type="button" onClick={() => { if (onFormSubmit) onFormSubmit(); }}>Cancel</button>
           </form>
           {message.text && <div className={`message ${message.type}`}>{message.text}</div>}
         </div>
@@ -325,19 +326,19 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
             <input type="text" name="first_name" placeholder="First Name" value={formData.first_name} onChange={handleInputChange} required />
             <input type="text" name="last_name" placeholder="Last Name" value={formData.last_name} onChange={handleInputChange} required />
             <input type="email" name="email" placeholder="Email" value={formData.email} onChange={handleInputChange} required />
-            <div className="role-selector">
-              <label>Role:</label>
-              <div className="role-options">
-                <button type="button" className={`role-btn ${formData.role === 'student' ? 'active' : ''}`} onClick={() => setFormData(prev => ({ ...prev, role: 'student' }))}>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontWeight: 700, color: '#333', fontSize: 14, display: 'block', marginBottom: 8 }}>Role:</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" onClick={() => setFormData(prev => ({ ...prev, role: 'student' }))} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: '2px solid', borderColor: formData.role === 'student' ? '#9b5e5e' : '#ddd', background: formData.role === 'student' ? '#9b5e5e' : '#fff', color: formData.role === 'student' ? '#fff' : '#888', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all 0.15s' }}>
                   <i className="fa-solid fa-user-graduate"></i><span>Student</span>
                 </button>
-                <button type="button" className={`role-btn ${formData.role === 'admin' ? 'active' : ''}`} onClick={() => setFormData(prev => ({ ...prev, role: 'admin' }))}>
+                <button type="button" onClick={() => setFormData(prev => ({ ...prev, role: 'admin' }))} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: '2px solid', borderColor: formData.role === 'admin' ? '#9b5e5e' : '#ddd', background: formData.role === 'admin' ? '#9b5e5e' : '#fff', color: formData.role === 'admin' ? '#fff' : '#888', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all 0.15s' }}>
                   <i className="fa-solid fa-user-shield"></i><span>Admin</span>
                 </button>
               </div>
             </div>
             <button type="submit">Update User</button>
-            <button type="button" onClick={handleCancel} style={{ marginTop: 8 }}>Cancel</button>
+            <button type="button" onClick={handleCancel}>Cancel</button>
           </form>
           {message.text && <div className={`message ${message.type}`}>{message.text}</div>}
         </div>
@@ -1080,7 +1081,10 @@ const RoomRightPanel = ({ selectedRoom, onClose, onAddRoom }) => {
     try {
       const res = await fetch(`/api/door/${cmd}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
         body: JSON.stringify({ room: selectedRoom.name })
       });
       const data = await res.json();
@@ -1317,10 +1321,13 @@ const AccessLogs = () => {
 
   const formatDateTime = (raw) => {
     if (!raw) return '-';
-    const d = new Date(raw);
+    // SQLite เก็บ UTC ไม่มี timezone suffix → เติม Z เพื่อให้ JS แปลงเป็นเวลาไทย (UTC+7)
+    const utcStr = raw.includes('T') || raw.endsWith('Z') ? raw : raw.replace(' ', 'T') + 'Z';
+    const d = new Date(utcStr);
     return d.toLocaleString('th-TH', {
       year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit'
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      timeZone: 'Asia/Bangkok'
     });
   };
 
@@ -1385,7 +1392,7 @@ const AccessLogs = () => {
           {search && (
             <button
               onClick={() => { setSearchInput(''); setSearch(''); setOffset(0); }}
-              style={{ padding: '8px 10px', background: '#f2f2f2', border: '1px solid #ddd', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#666' }}
+              style={{ padding: '8px 10px', background: '#e8e8e8', border: '1px solid #bbb', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#444', fontWeight: '600' }}
               title="ล้างการค้นหา"
             >
               <i className="fa-solid fa-xmark"></i>
@@ -1417,10 +1424,14 @@ const AccessLogs = () => {
               onClick={() => handleFilterResult(opt.value)}
               style={{
                 padding: '8px 14px', borderRadius: '6px', fontSize: '13px', cursor: 'pointer',
-                border: filterResult === opt.value ? '2px solid #d88b8b' : '1px solid #ddd',
-                background: filterResult === opt.value ? '#d88b8b' : 'white',
-                color: filterResult === opt.value ? 'white' : '#333',
-                fontWeight: filterResult === opt.value ? '600' : '400',
+                border: filterResult === opt.value ? '2px solid #fff' : '1px solid #ccc',
+                background: filterResult === opt.value ? '#c0675f' : 'white',
+                color: filterResult === opt.value ? 'white' : '#555',
+                fontWeight: filterResult === opt.value ? '700' : '400',
+                boxShadow: filterResult === opt.value ? '0 0 0 3px #c0675f55, inset 0 1px 3px rgba(0,0,0,0.2)' : 'none',
+                outline: filterResult === opt.value ? '2px solid #c0675f' : 'none',
+                transform: filterResult === opt.value ? 'scale(1.04)' : 'scale(1)',
+                transition: 'all 0.15s',
               }}
             >
               {opt.label}
@@ -1431,7 +1442,7 @@ const AccessLogs = () => {
         {/* Refresh */}
         <button
           onClick={() => fetchLogs()}
-          style={{ padding: '8px 12px', background: '#f2f2f2', border: '1px solid #ddd', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#555' }}
+          style={{ padding: '8px 12px', background: '#e8e8e8', border: '1px solid #bbb', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#444', fontWeight: '600' }}
           title="รีเฟรช"
         >
           <i className="fa-solid fa-rotate-right"></i>
@@ -1453,7 +1464,7 @@ const AccessLogs = () => {
                   <th>#</th>
                   <th>Date / Time</th>
                   <th>UUID (RFID)</th>
-                  <th>Student ID</th>
+                  <th>User ID</th>
                   <th>Name</th>
                   <th>Email</th>
                   <th>Role</th>
@@ -1648,13 +1659,15 @@ const NotificationBell = ({ userEmail }) => {
 
   const formatTime = (raw) => {
     if (!raw) return '';
-    const d = new Date(raw);
+    // SQLite เก็บ UTC ไม่มี timezone suffix → ต้องเติม Z เพื่อให้ JS รู้ว่าเป็น UTC
+    const utcStr = raw.includes('T') || raw.endsWith('Z') ? raw : raw.replace(' ', 'T') + 'Z';
+    const d = new Date(utcStr);
     const now = new Date();
     const diff = Math.floor((now - d) / 60000);
-    if (diff < 1)  return 'just now';
-    if (diff < 60) return `${diff}m ago`;
-    if (diff < 1440) return `${Math.floor(diff/60)}h ago`;
-    return d.toLocaleDateString('th-TH');
+    if (diff < 1)  return 'เมื่อกี้';
+    if (diff < 60) return `${diff} นาทีที่แล้ว`;
+    if (diff < 1440) return `${Math.floor(diff / 60)} ชั่วโมงที่แล้ว`;
+    return d.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' });
   };
 
   return (
@@ -1720,29 +1733,33 @@ const NotificationBell = ({ userEmail }) => {
                 key={n.id}
                 onClick={() => !n.is_read && markRead(n.id)}
                 style={{
-                  display: 'flex', alignItems: 'flex-start', gap: '12px',
-                  padding: '12px 16px', borderBottom: '1px solid #f5f5f5',
+                  display: 'grid',
+                  gridTemplateColumns: '36px 1fr 20px',
+                  gap: '10px',
+                  alignItems: 'start',
+                  padding: '12px 16px',
+                  borderBottom: '1px solid #f5f5f5',
                   background: n.is_read ? '#fff' : '#f0f4ff',
                   cursor: n.is_read ? 'default' : 'pointer',
                   transition: 'background 0.15s',
                 }}
               >
                 <div style={{
-                  width: '36px', height: '36px', borderRadius: '50%', flexShrink: 0,
+                  width: '36px', height: '36px', borderRadius: '50%',
                   background: `${colorMap[n.type] || '#888'}22`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   color: colorMap[n.type] || '#888', fontSize: '15px',
                 }}>
                   <i className={`fa-solid ${iconMap[n.type] || 'fa-bell'}`}></i>
                 </div>
-                <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                  <div style={{ fontWeight: n.is_read ? '400' : '600', fontSize: '13px', color: '#333', marginBottom: '3px', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'break-word' }}>{n.title}</div>
-                  <div style={{ fontSize: '12px', color: '#666', lineHeight: '1.6', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'break-word' }}>{n.message}</div>
+                <div style={{ overflow: 'hidden' }}>
+                  <div style={{ fontWeight: n.is_read ? '400' : '600', fontSize: '13px', color: '#333', marginBottom: '3px', wordBreak: 'break-word' }}>{n.title}</div>
+                  <div style={{ fontSize: '12px', color: '#666', lineHeight: '1.6', wordBreak: 'break-word' }}>{n.message}</div>
                   <div style={{ fontSize: '11px', color: '#aaa', marginTop: '4px' }}>{formatTime(n.created_at)}</div>
                 </div>
                 <button
                   onClick={(e) => deleteNotif(n.id, e)}
-                  style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: '13px', padding: '2px 4px', flexShrink: 0 }}
+                  style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: '13px', padding: '2px 4px' }}
                   title="Delete"
                 >
                   <i className="fa-solid fa-xmark"></i>
@@ -1768,12 +1785,15 @@ const AdminDashboard = ({ user, onLogout }) => {
   const [settingsRefreshKey, setSettingsRefreshKey] = useState(0);
 
   useEffect(() => {
-    const socket = io(window.location.origin, { transports: ['websocket', 'polling'] });
+    const SOCKET_URL = process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:5000';
+    const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
     fetch('/api/reset_uuid', { method: 'POST' }).catch(err => {
       console.error('Error resetting UUID:', err);
     });
     socket.on('uuid_update', (data) => {
       console.log('uuid_update received:', data);
+      // ถ้ามาจาก ESP32_Door ไม่ต้อง update Right Panel (แค่ door access ไม่ใช่ register)
+      if (data.source === 'door') return;
       if (data.user_id) {
         setUuidUserInfo({ uuid: data.uuid, user_id: data.user_id, first_name: data.first_name, last_name: data.last_name, email: data.email, role: data.role });
       } else {
