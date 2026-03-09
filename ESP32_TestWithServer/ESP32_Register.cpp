@@ -19,7 +19,7 @@ void sendUUIDToAPI(const String &uuid)
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
 
-  String payload = "{\"uuid\": \"" + uuid + "\"}";
+  String payload = "{\"uuid\": \"" + uuid + "\", \"source\": \"register\"}";
   int httpResponseCode = http.POST(payload);
   Serial.print("RFID READ: ");
   Serial.println(payload);

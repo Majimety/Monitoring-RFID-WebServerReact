@@ -1735,9 +1735,9 @@ const NotificationBell = ({ userEmail }) => {
                 }}>
                   <i className={`fa-solid ${iconMap[n.type] || 'fa-bell'}`}></i>
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: n.is_read ? '400' : '600', fontSize: '13px', color: '#333', marginBottom: '3px' }}>{n.title}</div>
-                  <div style={{ fontSize: '12px', color: '#666', lineHeight: '1.4', wordBreak: 'break-word' }}>{n.message}</div>
+                <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                  <div style={{ fontWeight: n.is_read ? '400' : '600', fontSize: '13px', color: '#333', marginBottom: '3px', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'break-word' }}>{n.title}</div>
+                  <div style={{ fontSize: '12px', color: '#666', lineHeight: '1.6', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'break-word' }}>{n.message}</div>
                   <div style={{ fontSize: '11px', color: '#aaa', marginTop: '4px' }}>{formatTime(n.created_at)}</div>
                 </div>
                 <button

@@ -483,6 +483,8 @@ def get_uuid():
     uuid = data.get("uuid")
     # รับ room จาก ESP32 (ถ้าส่งมา) — backward compatible ถ้าไม่ส่งก็ยังใช้ได้
     room = data.get("room", "")
+    # source: "register" = มาจาก ESP32_Register (ไม่ต้อง notify), "door" = มาจาก ESP32_Door
+    source = data.get("source", "door")
 
     # Bug #5 Fix: ใช้ thread-safe setter
     set_latest_uuid(uuid)
@@ -493,8 +495,8 @@ def get_uuid():
     # บันทึก Access Log ทุกครั้งที่สแกน
     write_access_log(uuid=uuid, user=user, room=room, result=result, method="rfid")
 
-    # Trigger notification เมื่อ RFID denied
-    if not user:
+    # Trigger notification เมื่อ RFID denied — เฉพาะ door เท่านั้น ไม่แจ้งตอน register
+    if not user and source != "register":
         notify_rfid_denied(uuid=uuid, room=room)
 
     socketio.emit(
