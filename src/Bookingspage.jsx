@@ -262,24 +262,23 @@ const BookingsPage = () => {
           <table>
             <thead>
               <tr>
-                <th>ID</th>
-                <th>ผู้จอง</th>
+                <th>Booker</th>
                 <th>Email</th>
-                <th>ห้อง</th>
-                <th>วันที่</th>
-                <th>เวลาเริ่ม</th>
-                <th>เวลาสิ้นสุด</th>
-                <th>รายละเอียด</th>
-                <th>สถานะ</th>
-                <th>ผู้อนุมัติ</th>
-                <th>หมายเหตุ</th>
+                <th>Room</th>
+                <th>Date</th>
+                <th>Start Time</th>
+                <th>End Time</th>
+                <th>Details</th>
+                <th>Status</th>
+                <th>Approved By</th>
+                <th>Remarks</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredBookings.length === 0 ? (
                 <tr>
-                  <td colSpan="12" className="no-users">
+                <td colSpan="11" className="no-users">
                     {filter === 'all' ? 'ไม่มีข้อมูลการจอง' : `ไม่มีการจองที่${filter === 'pending' ? 'รอการอนุมัติ' : filter === 'approved' ? 'อนุมัติแล้ว' : 'ปฏิเสธแล้ว'}`}
                   </td>
                 </tr>
@@ -288,7 +287,6 @@ const BookingsPage = () => {
                   const badge = getStatusBadge(booking.status);
                   return (
                     <tr key={booking.id}>
-                      <td>{booking.id}</td>
                       <td>{booking.user_name || '-'}</td>
                       <td>{booking.user_email}</td>
                       <td>{booking.room}</td>
@@ -309,31 +307,30 @@ const BookingsPage = () => {
                       </td>
                       <td>
                         <div className="action-buttons">
-                          {booking.status === 'pending' && (
+                          {booking.status === 'pending' ? (
                             <>
                               <button
-                                className="action-link edit"
+                                className="action-link accept"
                                 onClick={() => handleApprove(booking.id)}
-                                title="อนุมัติ"
                               >
-                                <i className="fas fa-check"></i>
+                                Accept
                               </button>
                               <button
-                                className="action-link delete"
+                                className="action-link decline"
                                 onClick={() => handleReject(booking.id)}
-                                title="ปฏิเสธ"
                               >
-                                <i className="fas fa-times"></i>
+                                Decline
                               </button>
                             </>
+                          ) : (
+                            <button
+                              className="action-link delete"
+                              onClick={() => handleDelete(booking.id)}
+                              title="ลบ"
+                            >
+                              <i className="fas fa-trash"></i>
+                            </button>
                           )}
-                          <button
-                            className="action-link delete"
-                            onClick={() => handleDelete(booking.id)}
-                            title="ลบ"
-                          >
-                            <i className="fas fa-trash"></i>
-                          </button>
                         </div>
                       </td>
                     </tr>

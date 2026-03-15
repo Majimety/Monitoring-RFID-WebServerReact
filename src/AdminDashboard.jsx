@@ -2,15 +2,17 @@ import React, { useState, useEffect } from 'react';
 import io from 'socket.io-client';
 import './AdminDashboard.css';
 import BookingsPage from './Bookingspage';
+import RoomBooking from './RoomBooking';
 
 // ==================== Sidebar Component ====================
-const Sidebar = ({ currentPage, onPageChange, onLogout, user, sidebarOpen }) => {
+const Sidebar = ({ currentPage, onPageChange, onLogout, user, sidebarOpen, onAvatarClick }) => {
   const menuItems = [
     { id: 'dashboard', icon: 'fa-house', title: 'Dashboard' },
     { id: 'users', icon: 'fa-id-card', title: 'RFID Users' },
     { id: 'bookings', icon: 'fa-calendar-check', title: 'Booking Requests' },
     { id: 'logs', icon: 'fa-clock-rotate-left', title: 'Access Logs' },
-    { id: 'settings', icon: 'fa-gear', title: 'System Settings' }
+    { id: 'settings', icon: 'fa-gear', title: 'System Settings' },
+    { id: 'my-booking', icon: 'fa-calendar-plus', title: 'Room Booking' },
   ];
 
   return (
@@ -59,7 +61,12 @@ const Sidebar = ({ currentPage, onPageChange, onLogout, user, sidebarOpen }) => 
 
       {/* User Info at Bottom */}
       {user && (
-        <div className="sidebar-user">
+        <div
+          className="sidebar-user"
+          onClick={onAvatarClick}
+          style={{ cursor: 'pointer' }}
+          title="Edit Profile"
+        >
           <div className="user-avatar">
             {user.first_name?.[0]}{user.last_name?.[0]}
           </div>
@@ -72,7 +79,7 @@ const Sidebar = ({ currentPage, onPageChange, onLogout, user, sidebarOpen }) => 
 
 
 // ==================== Right Panel Component ====================
-const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdit, onEditUser, adminUser }) => {
+const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdit, onEditUser, adminUser, prefillData, onClearPrefill, profileMode, onCloseProfile }) => {
   const [formData, setFormData] = useState({
     uuid: '',
     user_id: '',
@@ -81,6 +88,89 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
     email: '',
     role: 'student'
   });
+
+  // Admin profile edit state
+  const [profileForm, setProfileForm] = useState({
+    first_name: adminUser?.first_name || '',
+    last_name: adminUser?.last_name || '',
+    phone: adminUser?.phone || '',
+    user_id: adminUser?.user_id || '',
+    password: '',
+    confirmPassword: ''
+  });
+  const [profileMsg, setProfileMsg] = useState({ text: '', type: '' });
+  const [profileLoading, setProfileLoading] = useState(false);
+
+  // Sync profileForm when adminUser changes
+  React.useEffect(() => {
+    if (adminUser) {
+      setProfileForm(prev => ({
+        ...prev,
+        first_name: adminUser.first_name || '',
+        last_name: adminUser.last_name || '',
+        phone: adminUser.phone || '',
+        user_id: adminUser.user_id || '',
+      }));
+    }
+  }, [adminUser?.first_name, adminUser?.last_name]);
+
+  const handleProfileChange = (e) => {
+    const { name, value } = e.target;
+    setProfileForm(prev => ({ ...prev, [name]: value }));
+    if (profileMsg.text) setProfileMsg({ text: '', type: '' });
+  };
+
+  const handleProfileSubmit = async (e) => {
+    e.preventDefault();
+    setProfileMsg({ text: '', type: '' });
+    if (!profileForm.first_name.trim() || !profileForm.last_name.trim()) {
+      setProfileMsg({ text: 'กรุณากรอกชื่อและนามสกุล', type: 'error' });
+      return;
+    }
+    if (profileForm.password || profileForm.confirmPassword) {
+      if (profileForm.password.length < 6) {
+        setProfileMsg({ text: 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร', type: 'error' });
+        return;
+      }
+      if (profileForm.password !== profileForm.confirmPassword) {
+        setProfileMsg({ text: 'รหัสผ่านไม่ตรงกัน', type: 'error' });
+        return;
+      }
+    }
+    setProfileLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const payload = {
+        first_name: profileForm.first_name.trim(),
+        last_name: profileForm.last_name.trim(),
+        phone: profileForm.phone.trim(),
+        user_id: profileForm.user_id.trim(),
+      };
+      if (profileForm.password) payload.password = profileForm.password;
+      const res = await fetch('/api/profile/update', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const stored = JSON.parse(localStorage.getItem('user') || '{}');
+        localStorage.setItem('user', JSON.stringify({ ...stored, first_name: payload.first_name, last_name: payload.last_name, user_id: payload.user_id }));
+        setProfileMsg({ text: 'แก้ไขข้อมูล admin สำเร็จ', type: 'success' });
+        setProfileForm(prev => ({ ...prev, password: '', confirmPassword: '' }));
+        setTimeout(() => {
+          setProfileMsg({ text: '', type: '' });
+          if (onCloseProfile) onCloseProfile();
+        }, 2000);
+      } else {
+        setProfileMsg({ text: data.error || 'เกิดข้อผิดพลาด', type: 'error' });
+      }
+    } catch {
+      setProfileMsg({ text: 'ไม่สามารถเชื่อมต่อ server ได้', type: 'error' });
+    } finally {
+      setProfileLoading(false);
+    }
+  };
   const [searchUserId, setSearchUserId] = useState('');
   const [message, setMessage] = useState({ text: '', type: '' });
   const isMounted = React.useRef(true);
@@ -130,6 +220,23 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
       });
     }
   }, [editingUser]);
+
+  // เติมข้อมูลจาก Register Request หรือ Search (ไม่ใช่ edit mode)
+  // uuid ของบัตรยังคงอยู่ แค่เติม user info ลงไป
+  useEffect(() => {
+    if (prefillData) {
+      setFormData(prev => ({
+        ...prev,
+        user_id: prefillData.user_id || '',
+        first_name: prefillData.first_name || '',
+        last_name: prefillData.last_name || '',
+        email: prefillData.email || '',
+        role: prefillData.role || 'student'
+      }));
+      setMessage({ text: '', type: '' });
+      if (onClearPrefill) onClearPrefill();
+    }
+  }, [prefillData]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -186,23 +293,56 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
     }
   };
 
+  // Auto-dash formatter for student ID
+  const formatStudentId = (raw) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 10);
+    if (digits.length >= 10) return digits.slice(0, 9) + '-' + digits.slice(9);
+    return digits;
+  };
+
   const handleSearch = async () => {
     if (!searchUserId.trim()) return;
+    // Fix 5: ล้าง message เก่าก่อน search ใหม่
+    setMessage({ text: '', type: '' });
     try {
+      const token = localStorage.getItem('token');
+      const lookupRes = await fetch(`/api/user/lookup?user_id=${encodeURIComponent(searchUserId.trim())}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (lookupRes.ok) {
+        const lookupData = await lookupRes.json();
+        if (lookupData.success && lookupData.user) {
+          const u = lookupData.user;
+          if (u.already_registered) {
+            setMessage({ text: `${u.first_name} ${u.last_name} ลงทะเบียน RFID แล้ว`, type: 'error' });
+          } else {
+            // Fix 5: ล้างฟอร์มเก่าก่อน แล้วเติมข้อมูลใหม่ (uuid ยังคงอยู่)
+            setFormData(prev => ({
+              ...prev,
+              user_id: u.user_id || '',
+              first_name: u.first_name || '',
+              last_name: u.last_name || '',
+              email: u.email || '',
+              role: 'student'
+            }));
+            // Fix 4: ไม่แสดง success message
+          }
+          setSearchUserId('');
+          return;
+        }
+      }
+      // Fallback: หาใน users_reg (กรณี edit)
       const response = await fetch('/api/users');
       const data = await response.json();
       const user = data.users.find(u => u.user_id === searchUserId.trim());
       if (user) {
-        // Trigger edit mode directly — same as clicking Edit in the table
-        if (onEditUser) {
-          onEditUser(user);
-        }
+        if (onEditUser) onEditUser(user);
         setSearchUserId('');
       } else {
-        alert('ไม่พบ User ID นี้');
+        setMessage({ text: 'ไม่พบ User ID นี้ในระบบ', type: 'error' });
       }
     } catch (error) {
-      alert('Error searching user');
+      setMessage({ text: 'เกิดข้อผิดพลาดในการค้นหา', type: 'error' });
     }
   };
 
@@ -212,7 +352,17 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
 
   const handleCancel = () => {
     setMessage({ text: '', type: '' });
+    // ล้างฟอร์มทั้งหมดกลับ idle (เก็บ uuid ไว้เพราะมาจาก RFID scan)
+    setFormData({
+      uuid: '',
+      user_id: '',
+      first_name: '',
+      last_name: '',
+      email: '',
+      role: 'student'
+    });
     if (onCancelEdit) onCancelEdit();
+    if (onClearPrefill) onClearPrefill();
   };
 
   // ---- Render States ----
@@ -221,9 +371,11 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
   // State 2: UUID scanned & already registered
   const isRegistered = uuid && uuidUserInfo;
   // State 3: UUID scanned & NOT registered yet → show add form
-  const isNewScan = uuid && !uuidUserInfo && !editingUser;
-  // State 4: No UUID scanned, not editing
-  const isIdle = !uuid && !editingUser;
+  // หรือ มี prefill data (กด "ดำเนินการ") แม้ uuid ยังว่างอยู่
+  const hasPrefill = !!(formData.first_name && formData.email && !editingUser);
+  const isNewScan = (uuid && !uuidUserInfo && !editingUser) || (!uuid && hasPrefill);
+  // State 4: No UUID scanned, not editing, no prefill
+  const isIdle = !uuid && !editingUser && !hasPrefill;
 
   return (
     <aside className="right-panel">
@@ -235,14 +387,72 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
             type="text"
             placeholder="Search User ID"
             value={searchUserId}
-            onChange={(e) => setSearchUserId(e.target.value)}
+            onChange={(e) => setSearchUserId(formatStudentId(e.target.value))}
             onKeyDown={handleSearchKey}
+            maxLength={11}
           />
         </div>
         <div style={{ flexShrink: 0 }}>
           <NotificationBell userEmail={adminUser?.email} />
         </div>
       </div>
+
+      {/* ---- PROFILE MODE: แสดงเมื่อ admin กดที่ avatar และไม่มี action อื่นค้างอยู่ ---- */}
+      {profileMode && !editingUser && !isNewScan ? (
+        <div>
+          {/* Avatar */}
+          <div style={{ textAlign: 'center', marginBottom: 16, marginTop: 8 }}>
+            <div style={{
+              width: 64, height: 64, borderRadius: '50%', background: '#d88b8b',
+              color: '#fff', fontSize: 22, fontWeight: 700,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              marginBottom: 6
+            }}>
+              {(profileForm.first_name?.[0] || '')}
+              {(profileForm.last_name?.[0] || '')}
+            </div>
+            <div style={{ fontSize: 13, color: '#666' }}>{adminUser?.email}</div>
+          </div>
+
+          <form onSubmit={handleProfileSubmit}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Name</label>
+            <input name="first_name" placeholder="First Name" value={profileForm.first_name} onChange={handleProfileChange} required style={{ marginBottom: 10 }} />
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Last Name</label>
+            <input name="last_name" placeholder="Last Name" value={profileForm.last_name} onChange={handleProfileChange} required style={{ marginBottom: 10 }} />
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>User ID</label>
+            <input name="user_id" placeholder="User ID" value={profileForm.user_id} onChange={handleProfileChange} style={{ marginBottom: 10 }} />
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Phone Number</label>
+            <input name="phone" placeholder="Phone Number" value={profileForm.phone} onChange={handleProfileChange} style={{ marginBottom: 10 }} />
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>New Password</label>
+            <input type="password" name="password" placeholder="New Password" value={profileForm.password} onChange={handleProfileChange} style={{ marginBottom: 10 }} />
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Confirm Password</label>
+            <input type="password" name="confirmPassword" placeholder="Confirm Password" value={profileForm.confirmPassword} onChange={handleProfileChange} style={{ marginBottom: 14 }} />
+
+            <button
+              type="submit"
+              disabled={profileLoading}
+              style={{ width: '100%', padding: '10px', borderRadius: 8, background: '#d88b8b', color: '#fff', border: 'none', fontWeight: 600, fontSize: 14, cursor: 'pointer', opacity: profileLoading ? 0.7 : 1, marginBottom: 8 }}
+            >
+              {profileLoading ? 'Saving...' : 'Save Changes'}
+            </button>
+            <button
+              type="button"
+              onClick={onCloseProfile}
+              style={{ width: '100%', padding: '10px', borderRadius: 8, background: '#d88b8b', color: '#fff', border: 'none', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
+            >
+              Cancel
+            </button>
+
+            {profileMsg.text && (
+              <div className={`message ${profileMsg.type}`}>
+                {profileMsg.text}
+              </div>
+            )}
+          </form>
+        </div>
+      ) : (
+        <>
+
 
       {/* ---- IDLE: waiting for RFID scan ---- */}
       {isIdle && (
@@ -288,12 +498,17 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
       {isNewScan && (
         <div>
           <h3 style={{ marginBottom: 6, color: '#333' }}>Add User</h3>
-          <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 6, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#92400e' }}>
-            <i className="fa-solid fa-circle-info" style={{ marginRight: 6 }}></i>
-            บัตรใหม่ — กรอกข้อมูลเพื่อลงทะเบียน
-          </div>
+
+          {/* แสดงสถานะ UUID */}
+          {!formData.uuid && (
+            <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 6, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#92400e' }}>
+              <i className="fa-solid fa-circle-info" style={{ marginRight: 6 }}></i>
+              บัตรใหม่ — กรอกข้อมูลเพื่อลงทะเบียน
+            </div>
+          )}
+
           <form onSubmit={handleSubmit}>
-            <input type="text" name="uuid" placeholder="RFID" value={formData.uuid} readOnly required style={{ background: '#f5f5f5' }} />
+            <input type="text" name="uuid" placeholder="รอสแกน RFID" value={formData.uuid} readOnly required style={{ background: '#f5f5f5' }} />
             <input type="text" name="user_id" placeholder="User ID" value={formData.user_id} onChange={handleInputChange} required />
             <input type="text" name="first_name" placeholder="First Name" value={formData.first_name} onChange={handleInputChange} required />
             <input type="text" name="last_name" placeholder="Last Name" value={formData.last_name} onChange={handleInputChange} required />
@@ -310,7 +525,7 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
               </div>
             </div>
             <button type="submit">Add RFID</button>
-            <button type="button" onClick={() => { if (onFormSubmit) onFormSubmit(); }}>Cancel</button>
+            <button type="button" onClick={handleCancel}>Cancel</button>
           </form>
           {message.text && <div className={`message ${message.type}`}>{message.text}</div>}
         </div>
@@ -342,6 +557,8 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
           </form>
           {message.text && <div className={`message ${message.type}`}>{message.text}</div>}
         </div>
+      )}
+        </>
       )}
     </aside>
   );
@@ -430,6 +647,65 @@ const RemarkModal = ({ isOpen, mode, onConfirm, onCancel }) => {
   );
 };
 
+// ==================== Confirm Modal Component (สำหรับ Cancel Register Request) ====================
+const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confirmLabel = 'ยืนยัน', confirmColor = '#e74c3c' }) => {
+  const [loading, setLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!isOpen) setLoading(false);
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleConfirm = async () => {
+    setLoading(true);
+    await onConfirm();
+    setLoading(false);
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 2000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center'
+    }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)' }} onClick={onCancel} />
+      <div style={{
+        position: 'relative', background: '#fff', borderRadius: '12px',
+        padding: '28px', width: '380px', maxWidth: '90vw',
+        boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
+      }}>
+        <h3 style={{ margin: '0 0 10px', color: '#333', fontSize: '18px' }}>{title}</h3>
+        <p style={{ margin: '0 0 20px', color: '#666', fontSize: '14px', lineHeight: 1.6 }}>{message}</p>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            onClick={handleConfirm}
+            disabled={loading}
+            style={{
+              flex: 1, padding: '11px', borderRadius: '8px', border: 'none',
+              background: confirmColor, color: '#fff',
+              fontWeight: '600', fontSize: '14px', cursor: 'pointer',
+              opacity: loading ? 0.6 : 1
+            }}
+          >
+            {loading ? '...' : confirmLabel}
+          </button>
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            style={{
+              flex: 1, padding: '11px', borderRadius: '8px',
+              border: '1px solid #ddd', background: '#fff',
+              color: '#333', fontWeight: '600', fontSize: '14px', cursor: 'pointer'
+            }}
+          >
+            ยกเลิก
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ==================== Toast Notification Component (แทน alert) ====================
 const Toast = ({ message, type, onClose }) => {
   React.useEffect(() => {
@@ -455,18 +731,21 @@ const Toast = ({ message, type, onClose }) => {
 };
 
 // ==================== Dashboard Content Component ====================
-const DashboardContent = () => {
+const DashboardContent = ({ onPrefillUser }) => {
   const [stats, setStats] = useState({
     totalRequest: 0,
     bookingRequest: 0,
     registerRequest: 0
   });
   const [bookings, setBookings] = useState([]);
+  const [registerRequests, setRegisterRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('booking');
 
   // Bug #7 Fix: Modal state แทน prompt/alert
   const [remarkModal, setRemarkModal] = useState({ open: false, mode: '', bookingId: null });
   const [toast, setToast] = useState({ message: '', type: '' });
+  const [confirmModal, setConfirmModal] = useState({ open: false, id: null });
 
   const showToast = (message, type = 'success') => setToast({ message, type });
 
@@ -476,20 +755,38 @@ const DashboardContent = () => {
 
   const fetchDashboardData = async () => {
     try {
+      const token = localStorage.getItem('token');
       const bookingResponse = await fetch('/api/bookings/all', {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
+      const regResponse = await fetch('/api/rfid-register-requests', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      let bookingPending = 0;
+      let allBookings = [];
       if (bookingResponse.ok) {
         const bookingData = await bookingResponse.json();
-        const allBookings = bookingData.bookings || [];
+        allBookings = bookingData.bookings || [];
         const pendingBookings = allBookings.filter(b => b.status === 'pending');
         setBookings(pendingBookings.slice(0, 10));
-        setStats({
-          totalRequest: pendingBookings.length,
-          bookingRequest: pendingBookings.length,
-          registerRequest: 0
-        });
+        bookingPending = pendingBookings.length;
       }
+
+      let registerPending = 0;
+      if (regResponse.ok) {
+        const regData = await regResponse.json();
+        const allRegReqs = regData.requests || [];
+        const pendingRegReqs = allRegReqs.filter(r => r.status === 'pending');
+        setRegisterRequests(pendingRegReqs.slice(0, 10));
+        registerPending = pendingRegReqs.length;
+      }
+
+      setStats({
+        totalRequest: bookingPending + registerPending,
+        bookingRequest: bookingPending,
+        registerRequest: registerPending
+      });
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
@@ -532,6 +829,48 @@ const DashboardContent = () => {
     }
   };
 
+  const handleCancelRequest = (id) => {
+    setConfirmModal({ open: true, id });
+  };
+
+  const handleCancelConfirm = async () => {
+    const id = confirmModal.id;
+    setConfirmModal({ open: false, id: null });
+    try {
+      await fetch(`/api/rfid-register-requests/${id}/cancel`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      showToast('ยกเลิกคำขอแล้ว', 'success');
+      fetchDashboardData();
+    } catch {
+      showToast('เกิดข้อผิดพลาด', 'error');
+    }
+  };
+
+  const handleSelectRequest = async (req) => {
+    try {
+      const token = localStorage.getItem('token');
+      const lookupRes = await fetch(`/api/user/lookup?user_id=${encodeURIComponent(req.user_id)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const lookupData = await lookupRes.json();
+      if (lookupRes.ok && lookupData.success) {
+        const u = lookupData.user;
+        if (u.already_registered) {
+          showToast(`${u.first_name} ${u.last_name} ลงทะเบียน RFID แล้ว`, 'error');
+          return;
+        }
+        if (onPrefillUser) onPrefillUser({ user_id: u.user_id, first_name: u.first_name, last_name: u.last_name, email: u.email });
+        showToast(`โหลดข้อมูล ${u.first_name} ${u.last_name} แล้ว — สแกนบัตร RFID แล้วกด Add RFID`, 'success');
+      } else {
+        showToast('ไม่พบข้อมูลผู้ใช้', 'error');
+      }
+    } catch {
+      showToast('เกิดข้อผิดพลาด', 'error');
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: '40px', color: '#fff' }}>
@@ -548,6 +887,15 @@ const DashboardContent = () => {
         mode={remarkModal.mode}
         onConfirm={handleRemarkConfirm}
         onCancel={() => setRemarkModal({ open: false, mode: '', bookingId: null })}
+      />
+      <ConfirmModal
+        isOpen={confirmModal.open}
+        title="⚠️ ยืนยันการยกเลิกคำขอ"
+        message="ต้องการยกเลิกคำขอลงทะเบียน RFID นี้ใช่ไหม? คำขอจะถูกยกเลิกและผู้ใช้จะต้องส่งคำขอใหม่"
+        confirmLabel="ยืนยันยกเลิก"
+        confirmColor="#e74c3c"
+        onConfirm={handleCancelConfirm}
+        onCancel={() => setConfirmModal({ open: false, id: null })}
       />
       <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: '', type: '' })} />
 
@@ -573,63 +921,161 @@ const DashboardContent = () => {
           </div>
         </div>
 
-        <div className="bookings-title">Recent Booking Requests</div>
+        <div className="bookings-title">Recent Requests</div>
 
-        <div className="container">
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>ผู้จอง</th>
-                  <th>Room</th>
-                  <th>Date</th>
-                  <th>Time</th>
-                  <th>Detail</th>
-                  <th>Decision</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bookings.length === 0 ? (
+        {/* Tab Toggle Buttons */}
+        <div style={{ marginBottom: '16px', display: 'flex', gap: '10px' }}>
+          {[
+            { key: 'booking', label: 'Booking Requests' },
+            { key: 'register', label: 'Register Requests' }
+          ].map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              style={{
+                padding: '8px 18px',
+                borderRadius: '8px',
+                border: activeTab === tab.key ? '2px solid #fff' : '1px solid #ccc',
+                background: activeTab === tab.key ? '#c0675f' : 'white',
+                color: activeTab === tab.key ? 'white' : '#555',
+                cursor: 'pointer',
+                fontWeight: activeTab === tab.key ? '700' : '400',
+                boxShadow: activeTab === tab.key ? '0 0 0 3px #c0675f55, inset 0 1px 3px rgba(0,0,0,0.2)' : 'none',
+                outline: activeTab === tab.key ? '2px solid #c0675f' : 'none',
+                transform: activeTab === tab.key ? 'scale(1.05)' : 'scale(1)',
+                transition: 'all 0.15s',
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Booking Requests Table */}
+        {activeTab === 'booking' && (
+          <div className="container">
+            <div className="table-container">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan="6" style={{ textAlign: 'center', padding: '20px' }}>
-                      ไม่มีคำขอจองใหม่
-                    </td>
+                    <th>Booker</th>
+                    <th>Room</th>
+                    <th>Date</th>
+                    <th>Time</th>
+                    <th>Detail</th>
+                    <th>Decision</th>
                   </tr>
-                ) : (
-                  bookings.map((booking) => (
-                    <tr key={booking.id}>
-                      <td>{booking.user_name || booking.user_email}</td>
-                      <td>{booking.room}</td>
-                      <td>{booking.date}</td>
-                      <td>{booking.start_time} - {booking.end_time}</td>
-                      <td>{booking.detail || '-'}</td>
-                      <td>
-                        <span className="btn-accept" onClick={() => handleAccept(booking.id)}>Accept</span>
-                        {' | '}
-                        <span className="btn-decline" onClick={() => handleDecline(booking.id)}>Decline</span>
+                </thead>
+                <tbody>
+                  {bookings.length === 0 ? (
+                    <tr>
+                      <td colSpan="6" style={{ textAlign: 'center', padding: '20px' }}>
+                        ไม่มีคำขอจองใหม่
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    bookings.map((booking) => (
+                      <tr key={booking.id}>
+                        <td>{booking.user_name || booking.user_email}</td>
+                        <td>{booking.room}</td>
+                        <td>{booking.date}</td>
+                        <td>{booking.start_time} - {booking.end_time}</td>
+                        <td>{booking.detail || '-'}</td>
+                        <td>
+                          <div className="action-buttons">
+                            <span className="action-link accept" onClick={() => handleAccept(booking.id)}>Accept</span>
+                            <span className="action-link decline" onClick={() => handleDecline(booking.id)}>Decline</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Register Requests Table */}
+        {activeTab === 'register' && (
+          <div className="container">
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>User ID</th>
+                    <th>Full Name</th>
+                    <th>Email</th>
+                    <th>Request Date</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {registerRequests.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" style={{ textAlign: 'center', padding: '20px' }}>
+                        ไม่มีคำขอลงทะเบียน RFID ใหม่
+                      </td>
+                    </tr>
+                  ) : (
+                    registerRequests.map((req) => (
+                      <tr key={req.id}>
+                        <td>{req.user_id}</td>
+                        <td>{req.first_name} {req.last_name}</td>
+                        <td>{req.email}</td>
+                        <td>{new Date(req.created_at).toLocaleString('th-TH')}</td>
+                        <td>
+                          <div className="action-buttons">
+                            <span
+                              className="action-link edit"
+                              onClick={() => handleSelectRequest(req)}
+                              title="โหลดข้อมูลเข้าฟอร์มลงทะเบียน"
+                            >
+                              Select
+                            </span>
+                            <span
+                              className="action-link delete"
+                              onClick={() => handleCancelRequest(req.id)}
+                            >
+                              Cancel
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
 };
 
 // ==================== Users Table Component ====================
-const UsersTable = ({ onRefresh, onEditUser }) => {
+const UsersTable = ({ onRefresh, onEditUser, onPrefillUser }) => {
   const [users, setUsers] = useState([]);
+  const [unregisteredUsers, setUnregisteredUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('registered');
+  const [confirmModal, setConfirmModal] = useState({ open: false, userId: null, userName: '' });
 
   const loadUsers = async () => {
     try {
       const response = await fetch('/api/users');
       const data = await response.json();
       setUsers(data.users || []);
+
+      const token = localStorage.getItem('token');
+      const allUsersRes = await fetch('/api/admin/all-users', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (allUsersRes.ok) {
+        const allUsersData = await allUsersRes.json();
+        setUnregisteredUsers(allUsersData.users || []);
+      }
     } catch (error) {
       console.error('Error loading users:', error);
     } finally {
@@ -680,6 +1126,43 @@ const UsersTable = ({ onRefresh, onEditUser }) => {
     }
   };
 
+  const handleDeleteAdminUser = (id) => {
+    const u = unregisteredUsers.find(x => x.id === id);
+    setConfirmModal({ open: true, userId: id, userName: `${u?.first_name || ''} ${u?.last_name || ''}`.trim() });
+  };
+
+  const handleConfirmDeleteAdmin = async () => {
+    const id = confirmModal.userId;
+    setConfirmModal({ open: false, userId: null, userName: '' });
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/admin/delete-user/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        loadUsers();
+      } else {
+        alert(data.error || 'ลบไม่สำเร็จ');
+      }
+    } catch {
+      alert('เกิดข้อผิดพลาด');
+    }
+  };
+
+  const handleSelectAdminUser = (u) => {
+    if (onPrefillUser) {
+      onPrefillUser({
+        user_id: u.user_id || '',
+        first_name: u.first_name,
+        last_name: u.last_name,
+        email: u.email,
+        role: u.role || (u.email?.endsWith('@kku.ac.th') ? 'admin' : 'student')
+      });
+    }
+  };
+
   const adminCount = users.filter(u => u.role === 'admin').length;
   const studentCount = users.filter(u => u.role === 'student').length;
 
@@ -688,6 +1171,15 @@ const UsersTable = ({ onRefresh, onEditUser }) => {
   }
 
   return (
+    <>
+      <ConfirmModal
+        isOpen={confirmModal.open}
+        title="⚠️ ลบผู้ใช้ออกจากระบบ"
+        message={`ต้องการลบ "${confirmModal.userName}" ออกจากระบบใช่ไหม?`}
+        confirmLabel="ลบเลย"
+        onConfirm={handleConfirmDeleteAdmin}
+        onCancel={() => setConfirmModal({ open: false, userId: null, userName: '' })}
+      />
     <div>
       <div className="page-title-box">
         <span className="page-title">RFID Registered Users</span>
@@ -710,18 +1202,113 @@ const UsersTable = ({ onRefresh, onEditUser }) => {
         </div>
       </div>
 
-      <div className="bookings-title">Users</div>
+      {/* Tab Toggle Buttons */}
+      <div style={{ marginBottom: '16px', display: 'flex', gap: '10px' }}>
+        {[
+          { key: 'registered', label: 'RFID Registered' },
+          { key: 'unregistered', label: 'RFID Not Registered' }
+        ].map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            style={{
+              padding: '8px 18px',
+              borderRadius: '8px',
+              border: activeTab === tab.key ? '2px solid #fff' : '1px solid #ccc',
+              background: activeTab === tab.key ? '#c0675f' : 'white',
+              color: activeTab === tab.key ? 'white' : '#555',
+              cursor: 'pointer',
+              fontWeight: activeTab === tab.key ? '700' : '400',
+              boxShadow: activeTab === tab.key ? '0 0 0 3px #c0675f55, inset 0 1px 3px rgba(0,0,0,0.2)' : 'none',
+              outline: activeTab === tab.key ? '2px solid #c0675f' : 'none',
+              transform: activeTab === tab.key ? 'scale(1.05)' : 'scale(1)',
+              transition: 'all 0.15s',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      <div className="container">
-        {users.length > 0 ? (
-          <>
-            {/* Desktop Table View */}
+      {/* Registered RFID Users Table */}
+      {activeTab === 'registered' && (
+        <div className="container">
+          {users.length > 0 ? (
+            <>
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>UUID</th>
+                      <th>User ID</th>
+                      <th>First Name</th>
+                      <th>Last Name</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map(user => (
+                      <tr key={user.id}>
+                        <td>{user.uuid}</td>
+                        <td>{user.user_id}</td>
+                        <td>{user.first_name}</td>
+                        <td>{user.last_name}</td>
+                        <td>{user.email}</td>
+                        <td>
+                          <span style={{
+                            padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                            background: user.role === 'admin' ? '#fff3e0' : '#e8f5e9',
+                            color: user.role === 'admin' ? '#e65100' : '#2e7d32',
+                            border: `1px solid ${user.role === 'admin' ? '#ffcc80' : '#a5d6a7'}`
+                          }}>
+                            {user.role}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="action-buttons">
+                            <span className="action-link edit" onClick={() => handleEdit(user.id)}>Edit</span>
+                            <span className="action-link delete" onClick={() => handleDelete(user.id)}>Delete</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mobile-cards">
+                {users.map(user => (
+                  <div key={user.id} className="user-card">
+                    <div className="card-header">
+                      <div className="card-id">{user.user_id}</div>
+                      <div className="card-actions">
+                        <span className="action-link edit" onClick={() => handleEdit(user.id)}>Edit</span>
+                        <span className="action-link delete" onClick={() => handleDelete(user.id)}>Delete</span>
+                      </div>
+                    </div>
+                    <div className="card-field"><div className="field-label">UUID:</div><div className="field-value">{user.uuid}</div></div>
+                    <div className="card-field"><div className="field-label">Name:</div><div className="field-value">{user.first_name} {user.last_name}</div></div>
+                    <div className="card-field"><div className="field-label">Email:</div><div className="field-value">{user.email}</div></div>
+                    <div className="card-field"><div className="field-label">Role:</div><div className="field-value">{user.role}</div></div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="no-users"><p>No users found.</p></div>
+          )}
+        </div>
+      )}
+
+      {/* Unregistered Users Table */}
+      {activeTab === 'unregistered' && (
+        <div className="container">
+          {unregisteredUsers.length > 0 ? (
             <div className="table-container">
               <table>
                 <thead>
                   <tr>
-                    <th>ID</th>
-                    <th>UUID</th>
                     <th>User ID</th>
                     <th>First Name</th>
                     <th>Last Name</th>
@@ -731,96 +1318,43 @@ const UsersTable = ({ onRefresh, onEditUser }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map(user => (
-                    <tr key={user.id}>
-                      <td>{user.id}</td>
-                      <td>{user.uuid}</td>
-                      <td>{user.user_id}</td>
-                      <td>{user.first_name}</td>
-                      <td>{user.last_name}</td>
-                      <td>{user.email}</td>
-                      <td>{user.role}</td>
+                  {unregisteredUsers.map(u => {
+                    const derivedRole = u.email?.endsWith('@kku.ac.th') ? 'admin' : 'student';
+                    return (
+                    <tr key={u.id}>
+                      <td style={{ fontFamily: 'monospace' }}>{u.user_id || '-'}</td>
+                      <td>{u.first_name}</td>
+                      <td>{u.last_name}</td>
+                      <td>{u.email}</td>
+                      <td>
+                        <span style={{
+                          padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                          background: derivedRole === 'admin' ? '#fff3e0' : '#e8f5e9',
+                          color: derivedRole === 'admin' ? '#e65100' : '#2e7d32',
+                          border: `1px solid ${derivedRole === 'admin' ? '#ffcc80' : '#a5d6a7'}`
+                        }}>
+                          {derivedRole}
+                        </span>
+                      </td>
                       <td>
                         <div className="action-buttons">
-                          <span
-                            className="action-link edit"
-                            onClick={() => handleEdit(user.id)}
-                          >
-                            Edit
-                          </span>
-                          <span
-                            className="action-link delete"
-                            onClick={() => handleDelete(user.id)}
-                          >
-                            Delete
-                          </span>
+                          <span className="action-link edit" onClick={() => handleSelectAdminUser({ ...u, role: derivedRole })}>Select</span>
+                          <span className="action-link delete" onClick={() => handleDeleteAdminUser(u.id)}>Delete</span>
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-
-            {/* Mobile Card View */}
-            <div className="mobile-cards">
-              {users.map(user => (
-                <div key={user.id} className="user-card">
-                  <div className="card-header">
-                    <div className="card-id">ID: {user.id}</div>
-                    <div className="card-actions">
-                      <span
-                        className="action-link edit"
-                        onClick={() => handleEdit(user.id)}
-                      >
-                        Edit
-                      </span>
-                      <span
-                        className="action-link delete"
-                        onClick={() => handleDelete(user.id)}
-                      >
-                        Delete
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="card-field">
-                    <div className="field-label">UUID:</div>
-                    <div className="field-value">{user.uuid}</div>
-                  </div>
-
-                  <div className="card-field">
-                    <div className="field-label">User ID:</div>
-                    <div className="field-value">{user.user_id}</div>
-                  </div>
-
-                  <div className="card-field">
-                    <div className="field-label">Name:</div>
-                    <div className="field-value">
-                      {user.first_name} {user.last_name}
-                    </div>
-                  </div>
-
-                  <div className="card-field">
-                    <div className="field-label">Email:</div>
-                    <div className="field-value">{user.email}</div>
-                  </div>
-
-                  <div className="card-field">
-                    <div className="field-label">Role:</div>
-                    <div className="field-value">{user.role}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        ) : (
-          <div className="no-users">
-            <p>No users found.</p>
-          </div>
-        )}
-      </div>
+          ) : (
+            <div className="no-users"><p>ผู้ใช้ทุกคนลงทะเบียน RFID แล้ว</p></div>
+          )}
+        </div>
+      )}
     </div>
+    </>
   );
 };
 
@@ -871,6 +1405,8 @@ const RoomCard = ({ room, onSelect, isSelected }) => {
 const SystemSettings = ({ onSelectRoom, selectedRoom, refreshKey }) => {
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [roomSearch, setRoomSearch] = useState('');
+  const [filterFloor, setFilterFloor] = useState('all');
 
   // Load rooms from API
   const fetchRooms = async () => {
@@ -986,26 +1522,76 @@ const SystemSettings = ({ onSelectRoom, selectedRoom, refreshKey }) => {
         </button>
       </div>
 
-      <div className="rooms-grid">
-        {rooms.length === 0 && (
-          <div className="no-rooms">
-            <i className="fa-solid fa-door-open" style={{ fontSize: 40, color: '#d28b8b', marginBottom: 12 }}></i>
-            <p>ยังไม่มีห้อง กดปุ่ม "Add Room" เพื่อเพิ่ม</p>
-          </div>
-        )}
-        {rooms.map(room => (
-          <RoomCard
-            key={room.id}
-            room={room}
-            isSelected={selectedRoom?.id === room.id}
-            onSelect={(r) => onSelectRoom({
-              ...r,
-              __addMode: false,
-              __deleteCallback: () => handleDeleteRoom(r.id),
-              __renameCallback: (newName) => handleRenameRoom(r.id, newName),
-            })}
+      {/* Search + Floor Filter */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px', alignItems: 'center' }}>
+        {/* Search */}
+        <div style={{ display: 'flex', gap: '6px', flex: '1', minWidth: '180px' }}>
+          <input
+            type="text"
+            placeholder="Search room name..."
+            value={roomSearch}
+            onChange={e => setRoomSearch(e.target.value)}
+            style={{ flex: 1, padding: '8px 12px', border: '2px solid #fff', borderRadius: '6px', fontSize: '13px', background: 'rgba(255,255,255,0.95)', boxShadow: '0 1px 4px rgba(0,0,0,0.12)', outline: 'none' }}
           />
-        ))}
+          {roomSearch && (
+            <button
+              onClick={() => setRoomSearch('')}
+              style={{ padding: '8px 10px', background: '#e8e8e8', border: '2px solid #fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#444' }}
+              title="ล้าง"
+            >
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          )}
+        </div>
+
+        {/* Floor Filter — dropdown */}
+        <select
+          value={filterFloor}
+          onChange={e => setFilterFloor(e.target.value)}
+          style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', minWidth: '130px' }}
+        >
+          <option value="all">All Floors</option>
+          <option value="1">Floor 1</option>
+          <option value="2">Floor 2</option>
+          <option value="3">Floor 3</option>
+          <option value="4">Floor 4</option>
+          <option value="5">Floor 5</option>
+        </select>
+      </div>
+
+      <div className="rooms-grid">
+        {(() => {
+          const filtered = rooms.filter(room => {
+            const matchSearch = roomSearch === '' || room.name.toLowerCase().includes(roomSearch.toLowerCase());
+            const matchFloor = filterFloor === 'all' || room.name.toUpperCase().startsWith(`EN4${filterFloor}`);
+            return matchSearch && matchFloor;
+          });
+          if (rooms.length === 0) return (
+            <div className="no-rooms">
+              <i className="fa-solid fa-door-open" style={{ fontSize: 40, color: '#d28b8b', marginBottom: 12 }}></i>
+              <p>ยังไม่มีห้อง กดปุ่ม "Add Room" เพื่อเพิ่ม</p>
+            </div>
+          );
+          if (filtered.length === 0) return (
+            <div className="no-rooms">
+              <i className="fa-solid fa-magnifying-glass" style={{ fontSize: 32, color: '#d28b8b', marginBottom: 12 }}></i>
+              <p>ไม่พบห้องที่ค้นหา</p>
+            </div>
+          );
+          return filtered.map(room => (
+            <RoomCard
+              key={room.id}
+              room={room}
+              isSelected={selectedRoom?.id === room.id}
+              onSelect={(r) => onSelectRoom({
+                ...r,
+                __addMode: false,
+                __deleteCallback: () => handleDeleteRoom(r.id),
+                __renameCallback: (newName) => handleRenameRoom(r.id, newName),
+              })}
+            />
+          ));
+        })()}
       </div>
     </div>
   );
@@ -1381,18 +1967,18 @@ const AccessLogs = () => {
             value={searchInput}
             onChange={e => setSearchInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSearch()}
-            style={{ flex: 1, padding: '8px 12px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
+            style={{ flex: 1, padding: '8px 12px', border: '2px solid #fff', borderRadius: '6px', fontSize: '13px', background: 'rgba(255,255,255,0.95)', boxShadow: '0 1px 4px rgba(0,0,0,0.12)', outline: 'none' }}
           />
           <button
             onClick={handleSearch}
-            style={{ padding: '8px 14px', background: '#d88b8b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
+            style={{ padding: '8px 14px', background: '#d88b8b', color: '#fff', border: '2px solid #fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
           >
             <i className="fa-solid fa-magnifying-glass"></i>
           </button>
           {search && (
             <button
               onClick={() => { setSearchInput(''); setSearch(''); setOffset(0); }}
-              style={{ padding: '8px 10px', background: '#e8e8e8', border: '1px solid #bbb', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#444', fontWeight: '600' }}
+              style={{ padding: '8px 10px', background: '#e8e8e8', border: '2px solid #fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#444', fontWeight: '600' }}
               title="ล้างการค้นหา"
             >
               <i className="fa-solid fa-xmark"></i>
@@ -1446,6 +2032,32 @@ const AccessLogs = () => {
           title="รีเฟรช"
         >
           <i className="fa-solid fa-rotate-right"></i>
+        </button>
+
+        {/* Purge old logs */}
+        <button
+          onClick={async () => {
+            if (!window.confirm('ต้องการลบ log ที่เก่ากว่า 30 วันทั้งหมดใช่ไหม?')) return;
+            try {
+              const res = await fetch('/api/access-logs/purge-old', {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token()}` }
+              });
+              const data = await res.json();
+              if (res.ok) {
+                alert(`ลบแล้ว ${data.deleted} รายการ`);
+                fetchLogs();
+              } else {
+                alert(data.error || 'เกิดข้อผิดพลาด');
+              }
+            } catch {
+              alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+            }
+          }}
+          style={{ padding: '8px 12px', background: '#fdecea', border: '1px solid #e57373', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#c62828', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}
+          title="ลบ log เก่ากว่า 30 วัน"
+        >
+          <i className="fa-solid fa-trash-clock"></i> Clear old logs
         </button>
       </div>
 
@@ -1773,14 +2385,209 @@ const NotificationBell = ({ userEmail }) => {
   );
 };
 
+const RegisterRequestsPage = ({ onPrefillUser }) => {
+  const [requests, setRequests] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [toast, setToast] = React.useState({ message: '', type: '' });
+  const [confirmModal, setConfirmModal] = React.useState({ open: false, id: null });
+
+  const showToast = (msg, type = 'success') => setToast({ message: msg, type });
+
+  const fetchRequests = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/rfid-register-requests', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (data.success) setRequests(data.requests || []);
+    } catch { /* silent */ }
+    setLoading(false);
+  };
+
+  React.useEffect(() => { fetchRequests(); }, []);
+
+  const handleDone = async (req) => {
+    try {
+      // ดึงข้อมูลจาก admin_users ผ่าน lookup API
+      const token = localStorage.getItem('token');
+      const lookupRes = await fetch(`/api/user/lookup?user_id=${encodeURIComponent(req.user_id)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const lookupData = await lookupRes.json();
+
+      if (lookupRes.ok && lookupData.success) {
+        const u = lookupData.user;
+        if (u.already_registered) {
+          showToast(`${u.first_name} ${u.last_name} ลงทะเบียน RFID แล้ว`, 'error');
+          return;
+        }
+        // ส่งข้อมูลไปเติมฟอร์ม Add User ใน RightPanel
+        if (onPrefillUser) onPrefillUser({
+          user_id: u.user_id,
+          first_name: u.first_name,
+          last_name: u.last_name,
+          email: u.email,
+        });
+        showToast(`โหลดข้อมูล ${u.first_name} ${u.last_name} แล้ว — สแกนบัตร RFID แล้วกด Add RFID`, 'success');
+      } else {
+        showToast('ไม่พบข้อมูลผู้ใช้', 'error');
+      }
+    } catch {
+      showToast('เกิดข้อผิดพลาด', 'error');
+    }
+  };
+
+  const handleCancel = (id) => {
+    setConfirmModal({ open: true, id });
+  };
+
+  const handleCancelConfirm = async () => {
+    const id = confirmModal.id;
+    setConfirmModal({ open: false, id: null });
+    await fetch(`/api/rfid-register-requests/${id}/cancel`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    });
+    showToast('ยกเลิกคำขอแล้ว', 'success');
+    fetchRequests();
+  };
+
+  const handleDeleteDone = async (id) => {
+    if (!window.confirm('ต้องการลบรายการนี้ออกจากประวัติ?')) return;
+    try {
+      await fetch(`/api/rfid-register-requests/${id}/delete`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      showToast('ลบรายการสำเร็จ', 'success');
+      fetchRequests();
+    } catch {
+      showToast('เกิดข้อผิดพลาด', 'error');
+    }
+  };
+
+  const pendingReqs = requests.filter(r => r.status === 'pending');
+  const doneReqs = requests.filter(r => r.status !== 'pending');
+
+  return (
+    <div>
+      <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: '', type: '' })} />
+      <ConfirmModal
+        isOpen={confirmModal.open}
+        title="⚠️ ยืนยันการยกเลิกคำขอ"
+        message="ต้องการยกเลิกคำขอลงทะเบียน RFID นี้ใช่ไหม? คำขอจะถูกยกเลิกและผู้ใช้จะต้องส่งคำขอใหม่"
+        confirmLabel="ยืนยันยกเลิก"
+        confirmColor="#e74c3c"
+        onConfirm={handleCancelConfirm}
+        onCancel={() => setConfirmModal({ open: false, id: null })}
+      />
+      <div className="page-title-box">
+        <span className="page-title">RFID Register Requests</span>
+      </div>
+      <div className="quick-stats-title">Pending Requests</div>
+      <div className="container">
+        {loading ? (
+          <p style={{ padding: 20, color: '#aaa' }}>กำลังโหลด...</p>
+        ) : pendingReqs.length === 0 ? (
+          <p style={{ padding: 20, color: '#aaa', textAlign: 'center' }}>ไม่มีคำขอที่รอดำเนินการ</p>
+        ) : (
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>User ID</th>
+                  <th>Full Name</th>
+                  <th>Email</th>
+                  <th>Request Date</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingReqs.map(req => (
+                  <tr key={req.id}>
+                    <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{req.user_id}</td>
+                    <td>{req.first_name} {req.last_name}</td>
+                    <td>{req.email}</td>
+                    <td>{new Date(req.created_at).toLocaleString('th-TH')}</td>
+                    <td>
+                      <div className="action-buttons">
+                        <span
+                          className="action-link edit"
+                          onClick={() => handleDone(req)}
+                          title="โหลดข้อมูลเข้าฟอร์มลงทะเบียน"
+                        >
+                          Select
+                        </span>
+                        <span
+                          className="action-link delete"
+                          onClick={() => handleCancel(req.id)}
+                        >
+                          Cancel
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {doneReqs.length > 0 && (
+        <>
+          <div className="quick-stats-title" style={{ marginTop: 20 }}>Already Done</div>
+          <div className="container">
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>User ID</th>
+                    <th>Full Name</th>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {doneReqs.map(req => (
+                    <tr key={req.id} style={{ opacity: 0.75 }}>
+                      <td style={{ fontFamily: 'monospace' }}>{req.user_id}</td>
+                      <td>{req.first_name} {req.last_name}</td>
+                      <td>{req.email}</td>
+                      <td>{req.status}</td>
+                      <td>
+                        <span
+                          className="action-link delete"
+                          onClick={() => handleDeleteDone(req.id)}
+                          title="ลบออกจากประวัติ"
+                        >
+                          Delete
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 // ==================== Main Admin Dashboard Component ====================
 const AdminDashboard = ({ user, onLogout }) => {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [profileMode, setProfileMode] = useState(false);
   const [uuid, setUuid] = useState('');
   const [uuidUserInfo, setUuidUserInfo] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [editingUser, setEditingUser] = useState(null);
+  const [prefillData, setPrefillData] = useState(null);
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [settingsRefreshKey, setSettingsRefreshKey] = useState(0);
 
@@ -1821,6 +2628,13 @@ const AdminDashboard = ({ user, onLogout }) => {
   const handleEditUser = (user) => {
     setEditingUser(user);
     setCurrentPage('users');
+  };
+
+  // เติมข้อมูลผู้ใช้ลงฟอร์ม Add User (ไม่ใช่ edit) — ใช้กับ Register Requests
+  const handlePrefillUser = (userData) => {
+    setPrefillData(userData);
+    setEditingUser(null); // ต้องไม่เป็น edit mode
+    // ไม่เปลี่ยนหน้า — RightPanel แสดงฟอร์มได้ทุกหน้า
   };
 
   const handleCancelEdit = () => {
@@ -1873,9 +2687,11 @@ const AdminDashboard = ({ user, onLogout }) => {
   const renderContent = () => {
     switch (currentPage) {
       case 'dashboard':
-        return <DashboardContent />;
+        return <DashboardContent onPrefillUser={handlePrefillUser} />;
       case 'users':
-        return <UsersTable onRefresh={refreshKey} onEditUser={handleEditUser} />;
+        return <UsersTable onRefresh={refreshKey} onEditUser={handleEditUser} onPrefillUser={handlePrefillUser} />;
+      case 'register_requests':
+        return <RegisterRequestsPage onPrefillUser={handlePrefillUser} />;
       case 'settings':
         return (
           <SystemSettings
@@ -1890,12 +2706,25 @@ const AdminDashboard = ({ user, onLogout }) => {
         return <BookingsPage />;
       case 'logs':
         return <AccessLogs />;
+      case 'my-booking':
+        return (
+          <RoomBooking
+            user={user}
+            onLogout={onLogout}
+            onNavigate={(view) => setCurrentPage(view)}
+            embeddedMode={true}
+          />
+        );
       default:
         return <DashboardContent />;
     }
   };
 
   const renderRightPanel = () => {
+    // ซ่อน right panel เมื่ออยู่หน้าจองห้องหรือลงทะเบียน RFID
+    if (currentPage === 'my-booking') {
+      return null;
+    }
     if (currentPage === 'settings') {
       return (
         <RoomRightPanel
@@ -1914,6 +2743,10 @@ const AdminDashboard = ({ user, onLogout }) => {
         onCancelEdit={handleCancelEdit}
         onEditUser={handleEditUser}
         adminUser={user}
+        prefillData={prefillData}
+        onClearPrefill={() => setPrefillData(null)}
+        profileMode={profileMode}
+        onCloseProfile={() => setProfileMode(false)}
       />
     );
   };
@@ -1933,6 +2766,12 @@ const AdminDashboard = ({ user, onLogout }) => {
         onLogout={onLogout}
         user={user}
         sidebarOpen={sidebarOpen}
+        onAvatarClick={() => {
+          setCurrentPage('users');
+          setSelectedRoom(null);
+          setSidebarOpen(false);
+          setProfileMode(prev => !prev);
+        }}
       />
 
       {/* Mobile top bar — hidden on desktop via CSS */}

@@ -7,6 +7,7 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
     password: ''
   });
   const [error, setError] = useState('');
+  const [fieldError, setFieldError] = useState(''); // 'email' | 'password' | ''
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
@@ -14,11 +15,17 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
       ...formData,
       [e.target.name]: e.target.value
     });
+    // ล้าง error เมื่อผู้ใช้เริ่มแก้ไขฟิลด์นั้น
+    if (e.target.name === fieldError) {
+      setError('');
+      setFieldError('');
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setFieldError('');
     setLoading(true);
 
     try {
@@ -33,16 +40,14 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
       const data = await response.json();
 
       if (response.ok) {
-        // Store token and user info
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
-        
-        // Call onLogin callback
         if (onLogin) {
           onLogin(data.user);
         }
       } else {
         setError(data.error || 'Login failed');
+        setFieldError(data.field || '');
       }
     } catch (err) {
       setError('Connection error. Please try again.');
@@ -50,6 +55,13 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
       setLoading(false);
     }
   };
+
+  const inputStyle = (field) => ({
+    ...(fieldError === field ? {
+      borderColor: '#d32f2f',
+      boxShadow: '0 0 0 3px rgba(211, 47, 47, 0.12)'
+    } : {})
+  });
 
   return (
     <div className="auth-container">
@@ -71,8 +83,15 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
                 placeholder="admin@example.com"
                 value={formData.email}
                 onChange={handleChange}
+                style={inputStyle('email')}
                 required
               />
+              {fieldError === 'email' && (
+                <span style={{ color: '#d32f2f', fontSize: '12px', marginTop: '4px' }}>
+                  <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 4 }}></i>
+                  {error}
+                </span>
+              )}
             </div>
 
             <div className="form-group">
@@ -86,11 +105,19 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
                 placeholder="Enter your password"
                 value={formData.password}
                 onChange={handleChange}
+                style={inputStyle('password')}
                 required
               />
+              {fieldError === 'password' && (
+                <span style={{ color: '#d32f2f', fontSize: '12px', marginTop: '4px' }}>
+                  <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 4 }}></i>
+                  {error}
+                </span>
+              )}
             </div>
 
-            {error && (
+            {/* General error (ไม่ใช่ email/password) */}
+            {error && !fieldError && (
               <div className="error-message">
                 {error}
               </div>

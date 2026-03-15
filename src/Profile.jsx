@@ -4,7 +4,7 @@ import './Profile.css';
 
 const Profile = ({ user, onNavigate, onLogout }) => {
     const [formData, setFormData] = useState({
-        id: user?.id || '',
+        user_id: user?.user_id || '',
         password: '',
         confirmPassword: '',
         firstName: user?.first_name || '',
@@ -89,6 +89,7 @@ const Profile = ({ user, onNavigate, onLogout }) => {
                 first_name: formData.firstName.trim(),
                 last_name: formData.lastName.trim(),
                 phone: formData.phone.trim(),
+                user_id: formData.user_id.trim(),
             };
 
             // ส่ง password เฉพาะตอนที่ผู้ใช้กรอกใหม่
@@ -114,6 +115,7 @@ const Profile = ({ user, onNavigate, onLogout }) => {
                     ...storedUser,
                     first_name: formData.firstName.trim(),
                     last_name: formData.lastName.trim(),
+                    user_id: formData.user_id.trim(),
                 };
                 localStorage.setItem('user', JSON.stringify(updatedUser));
 
@@ -202,15 +204,16 @@ const Profile = ({ user, onNavigate, onLogout }) => {
                         )}
 
                         <form onSubmit={handleSubmit}>
-                            {/* รหัสประจำตัว (read-only) */}
+                            {/* รหัสนักศึกษา/บุคลากร */}
                             <div className="form-row full">
                                 <div className="form-group">
-                                    <label>รหัสประจำตัว</label>
+                                    <label>รหัสนักศึกษา / รหัสบุคลากร</label>
                                     <input
                                         type="text"
-                                        name="id"
-                                        value={formData.id}
-                                        disabled
+                                        name="user_id"
+                                        value={formData.user_id}
+                                        onChange={handleChange}
+                                        placeholder="เช่น 653040120-7 หรือ username"
                                     />
                                 </div>
                             </div>

@@ -473,7 +473,108 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/api/door/open", methods=["POST"])
+@app.route("/api/admin/all-users", methods=["GET"])
+def get_all_admin_users():
+    """ดึงรายชื่อผู้ใช้ที่ signup แล้วแต่ยังไม่ได้ลงทะเบียน RFID"""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Token is missing"}), 401
+    try:
+        import jwt as pyjwt
+
+        data = pyjwt.decode(
+            auth_header.split(" ")[1], app.config["SECRET_KEY"], algorithms=["HS256"]
+        )
+        if not data.get("email", "").endswith("@kku.ac.th"):
+            return jsonify({"error": "ไม่มีสิทธิ์"}), 403
+    except Exception:
+        return jsonify({"error": "Invalid token"}), 401
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT au.id, au.email, au.first_name, au.last_name, au.user_id, au.role
+                FROM admin_users au
+                WHERE au.is_active = 1
+                AND NOT EXISTS (
+                    SELECT 1 FROM users_reg ur
+                    WHERE ur.email = au.email AND ur.is_deleted = 0
+                )
+                ORDER BY au.created_at DESC
+                """
+            )
+            users = [dict(row) for row in cursor.fetchall()]
+        return jsonify({"success": True, "users": users})
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/user/lookup", methods=["GET"])
+def lookup_user_by_student_id():
+    """
+    ค้นหาข้อมูลผู้ใช้จาก admin_users โดยใช้ user_id (รหัสนักศึกษา)
+    ใช้ใน RightPanel ของ AdminDashboard เพื่อเติมข้อมูลอัตโนมัติ
+    """
+    uid = request.args.get("user_id", "").strip()
+    if not uid:
+        return jsonify({"success": False, "message": "user_id required"}), 400
+
+    # ตรวจ JWT token (admin only)
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Token is missing"}), 401
+    try:
+        import jwt as pyjwt
+
+        data = pyjwt.decode(
+            auth_header.split(" ")[1], app.config["SECRET_KEY"], algorithms=["HS256"]
+        )
+        if not data.get("email", "").endswith("@kku.ac.th"):
+            return jsonify({"error": "ไม่มีสิทธิ์"}), 403
+    except Exception:
+        return jsonify({"error": "Invalid token"}), 401
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, email, first_name, last_name, user_id
+                FROM admin_users WHERE user_id = ? AND is_active = 1
+                """,
+                (uid,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return (
+                    jsonify({"success": False, "message": "ไม่พบรหัสนักศึกษานี้ในระบบ"}),
+                    404,
+                )
+
+            # ตรวจว่า register RFID แล้วยัง
+            cursor.execute(
+                "SELECT id FROM users_reg WHERE email = ? AND is_deleted = 0",
+                (row["email"],),
+            )
+            already_registered = cursor.fetchone() is not None
+
+        return jsonify(
+            {
+                "success": True,
+                "user": {
+                    "email": row["email"],
+                    "first_name": row["first_name"],
+                    "last_name": row["last_name"],
+                    "user_id": row["user_id"],
+                    "already_registered": already_registered,
+                },
+            }
+        )
+    except sqlite3.Error as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 def door_open():
     data = request.get_json(silent=True) or {}
     room = data.get("room", "")
@@ -530,6 +631,48 @@ def get_door_command():
     return jsonify({"command": cmd})
 
 
+# =====================
+# Booking-based access check
+# =====================
+def _check_booking_access(email: str, room: str) -> str:
+    """
+    ตรวจสอบว่า user (email) มีสิทธิ์เข้าห้อง room ณ เวลาปัจจุบันหรือไม่
+    คืน 'granted' ถ้ามี booking approved ตรงกับห้องและเวลาปัจจุบัน
+    คืน 'denied' ถ้าไม่มี
+    """
+    if not room:
+        # ถ้า ESP32 ไม่ส่ง room มา (เช่น firmware เก่า) ให้ผ่านก่อน
+        return "granted"
+    try:
+        from datetime import datetime, timezone, timedelta
+
+        # เวลาไทย UTC+7
+        tz_thai = timezone(timedelta(hours=7))
+        now = datetime.now(tz_thai)
+        today = now.strftime("%Y-%m-%d")
+        now_time = now.strftime("%H:%M")
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT COUNT(*) FROM bookings
+                WHERE user_email = ?
+                  AND room = ?
+                  AND date = ?
+                  AND status = 'approved'
+                  AND start_time <= ?
+                  AND end_time > ?
+                """,
+                (email, room, today, now_time, now_time),
+            )
+            has_booking = cursor.fetchone()[0] > 0
+        return "granted" if has_booking else "denied"
+    except Exception as e:
+        print(f"[ACCESS] _check_booking_access error: {e}")
+        return "denied"
+
+
 @app.route("/api/send_uuid", methods=["POST"])
 def get_uuid():
     data = request.get_json()
@@ -543,13 +686,26 @@ def get_uuid():
     set_latest_uuid(uuid)
 
     user = get_user_by_uuid(uuid)
-    result = "granted" if user else "denied"
+
+    # ตรวจสอบสิทธิ์เข้าห้อง
+    # - source="register" = ESP32_Register ไม่เช็ค booking (แค่อ่านบัตรเพื่อ register)
+    # - admin เข้าได้เสมอ ไม่ต้องจอง
+    # - student/บุคคลทั่วไป ต้องมี booking approved ในห้องนี้ ณ เวลาปัจจุบัน
+    if user and source != "register":
+        if user.get("role") == "admin":
+            result = "granted"
+        else:
+            result = _check_booking_access(user["email"], room)
+    elif user and source == "register":
+        result = "granted"
+    else:
+        result = "denied"
 
     # บันทึก Access Log ทุกครั้งที่สแกน
     write_access_log(uuid=uuid, user=user, room=room, result=result, method="rfid")
 
     # Trigger notification เมื่อ RFID denied — เฉพาะ door เท่านั้น ไม่แจ้งตอน register
-    if not user and source != "register":
+    if result == "denied" and source != "register":
         print(
             f"[DEBUG] calling notify_rfid_denied: uuid={uuid} room={room} source={source}"
         )
@@ -649,6 +805,21 @@ def add_user_route():
     result = add_user(uuid, user_id, first_name, last_name, email, role)
     if result["success"]:
         set_latest_uuid(None)  # Bug #5 Fix: thread-safe
+        # Auto-close pending rfid_register_requests สำหรับ email นี้
+        try:
+            with get_db_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    UPDATE rfid_register_requests
+                    SET status = 'done', updated_at = CURRENT_TIMESTAMP
+                    WHERE email = ? AND status = 'pending'
+                    """,
+                    (email,),
+                )
+                conn.commit()
+        except Exception as e:
+            print(f"[add_user] auto-close rfid_register_requests error: {e}")
     return jsonify(result)
 
 
@@ -737,6 +908,39 @@ def update_user_route(id):
 # =====================
 # Rooms API
 # =====================
+# =====================
+# ESP32 Whitelist API
+# =====================
+@app.route("/api/whitelist", methods=["GET"])
+def get_whitelist():
+    """
+    คืน UUID + ชื่อของ admin ทุกคนที่ลงทะเบียน RFID แล้ว
+    ใช้โดย ESP32_Door ตอน boot และ refresh ทุก 5 นาที
+    เพื่อ sync offline fallback whitelist โดยไม่ต้อง upload firmware ใหม่
+    ไม่ต้อง auth token เพราะ ESP32 ไม่มี session
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT uuid, first_name, last_name
+                FROM users_reg
+                WHERE role = 'admin' AND is_deleted = 0
+                ORDER BY id
+                """
+            )
+            rows = cursor.fetchall()
+            admins = [
+                {"uuid": r["uuid"], "name": f"{r['first_name']} {r['last_name']}"}
+                for r in rows
+            ]
+        return jsonify({"success": True, "admins": admins, "count": len(admins)})
+    except Exception as e:
+        print(f"[WHITELIST] get_whitelist error: {e}")
+        return jsonify({"success": False, "admins": [], "count": 0}), 500
+
+
 @app.route("/api/rooms", methods=["GET"])
 def get_rooms():
     try:
@@ -981,6 +1185,53 @@ def get_access_log_stats():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/access-logs/purge-old", methods=["DELETE"])
+def purge_old_logs():
+    """ลบ access_logs ที่เก่ากว่า 30 วัน (admin เท่านั้น)"""
+    from auth import token_required as _tr
+
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not token:
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        import jwt as _jwt
+
+        data = _jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
+        email = data.get("email", "")
+        if not email.endswith("@kku.ac.th"):
+            return jsonify({"error": "ไม่มีสิทธิ์"}), 403
+    except Exception:
+        return jsonify({"error": "Invalid token"}), 401
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM access_logs WHERE scanned_at < datetime('now', '-30 days')"
+            )
+            deleted = cursor.rowcount
+            conn.commit()
+        return jsonify({"success": True, "deleted": deleted})
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _auto_purge_old_logs():
+    """ลบ log เก่ากว่า 30 วันโดยอัตโนมัติ (background task)"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM access_logs WHERE scanned_at < datetime('now', '-30 days')"
+            )
+            deleted = cursor.rowcount
+            conn.commit()
+        if deleted > 0:
+            print(f"[AUTO-PURGE] ลบ access_logs เก่า {deleted} รายการ")
+    except Exception as e:
+        print(f"[AUTO-PURGE] error: {e}")
+
+
 if __name__ == "__main__":
     init_db()
     init_auth_db()
@@ -1001,6 +1252,17 @@ if __name__ == "__main__":
     reminder_thread = threading.Thread(target=_reminder_loop, daemon=True)
     reminder_thread.start()
     print(" Reminder scheduler started (every 5 min)")
+
+    # Auto-purge scheduler — เช็คทุก 24 ชั่วโมง
+    def _purge_loop():
+        _auto_purge_old_logs()  # run ทันทีตอน start
+        while True:
+            _time.sleep(86400)  # 24 ชั่วโมง
+            _auto_purge_old_logs()
+
+    purge_thread = threading.Thread(target=_purge_loop, daemon=True)
+    purge_thread.start()
+    print(" Auto-purge scheduler started (every 24h)")
 
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", 5000))

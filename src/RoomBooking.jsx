@@ -160,7 +160,126 @@ const NotificationBell = ({ userEmail }) => {
 };
 
 
-const RoomBooking = ({ user, onLogout, onNavigate }) => {
+// ==================== RFID Status Popup ====================
+const RfidStatusPopup = ({ mode, onClose }) => {
+  // mode: 'register' = ยังไม่ได้ส่งคำขอ, 'warning' = มี pending แล้ว / หลังส่งคำขอ
+  const [step, setStep] = React.useState(mode); // 'register' | 'sent' | 'warning'
+  const [sending, setSending] = React.useState(false);
+  const [err, setErr] = React.useState('');
+
+  const handleSend = async () => {
+    setSending(true);
+    setErr('');
+    try {
+      const res = await fetch('/api/rfid-register-request', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStep('sent');
+      } else {
+        setErr(data.error || 'เกิดข้อผิดพลาด');
+      }
+    } catch {
+      setErr('ไม่สามารถเชื่อมต่อ server ได้');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const overlayStyle = {
+    position: 'fixed', inset: 0, zIndex: 9999,
+    display: 'flex', alignItems: 'center', justifyContent: 'center'
+  };
+  const backdropStyle = { position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' };
+  const boxStyle = {
+    position: 'relative', background: '#fff', borderRadius: 16,
+    padding: '36px 32px', maxWidth: 420, width: '90%',
+    boxShadow: '0 16px 50px rgba(0,0,0,0.25)', textAlign: 'center'
+  };
+  const btnPrimary = {
+    background: '#d88b8b', color: '#fff', border: 'none',
+    padding: '12px 40px', borderRadius: 10, fontSize: 15,
+    fontWeight: 600, cursor: 'pointer', width: '100%', marginTop: 8
+  };
+
+  // Step: warning — ไม่สามารถใช้งานระบบจองได้
+  if (step === 'warning') {
+    return (
+      <div style={overlayStyle}>
+        <div style={backdropStyle} />
+        <div style={boxStyle}>
+          <div style={{ fontSize: 52, marginBottom: 16 }}>⚠️</div>
+          <h3 style={{ color: '#e67e22', marginBottom: 12, fontSize: 18 }}>
+            ไม่สามารถใช้งานระบบการจองได้
+          </h3>
+          <p style={{ color: '#555', fontSize: 14, lineHeight: 1.8, marginBottom: 24 }}>
+            โปรดไปดำเนินการลงทะเบียน RFID กับ Admin
+            <br />
+            <span style={{ color: '#999', fontSize: 12 }}>
+              เมื่อ Admin ลงทะเบียน RFID ให้เรียบร้อยแล้ว<br />
+              คุณจะสามารถใช้งานระบบจองห้องได้
+            </span>
+          </p>
+          <button onClick={onClose} style={btnPrimary}>รับทราบ</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Step: sent — ส่งคำขอสำเร็จแล้ว
+  if (step === 'sent') {
+    return (
+      <div style={overlayStyle}>
+        <div style={backdropStyle} />
+        <div style={boxStyle}>
+          <div style={{ fontSize: 52, marginBottom: 16 }}>✅</div>
+          <h3 style={{ color: '#4caf50', marginBottom: 10 }}>ส่งคำขอสำเร็จ!</h3>
+          <p style={{ color: '#555', fontSize: 14, marginBottom: 24 }}>
+            Admin จะดำเนินการลงทะเบียน RFID ให้คุณเร็วๆ นี้
+          </p>
+          <button onClick={() => setStep('warning')} style={btnPrimary}>
+            ตกลง
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Step: register — ยังไม่ได้ส่งคำขอเลย
+  return (
+    <div style={overlayStyle}>
+      <div style={backdropStyle} />
+      <div style={boxStyle}>
+        <div style={{ fontSize: 52, marginBottom: 16 }}>🪪</div>
+        <h3 style={{ color: '#333', marginBottom: 10 }}>ยังไม่ได้ลงทะเบียน RFID</h3>
+        <p style={{ color: '#666', fontSize: 14, marginBottom: 8 }}>
+          คุณยังไม่ได้ทำการลงทะเบียนบัตร RFID
+        </p>
+        <p style={{ color: '#888', fontSize: 13, marginBottom: 20 }}>
+          กรุณาแตะบัตรที่เครื่องอ่าน RFID ก่อน<br />
+          แล้วกดปุ่มด้านล่างเพื่อแจ้ง Admin
+        </p>
+        {err && (
+          <p style={{ color: '#e74c3c', fontSize: 13, marginBottom: 10 }}>{err}</p>
+        )}
+        <button
+          onClick={handleSend}
+          disabled={sending}
+          style={{ ...btnPrimary, opacity: sending ? 0.7 : 1 }}
+        >
+          {sending ? 'กำลังส่ง...' : '📨 ส่งคำขอ Register Request'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
   // Ensure mobile viewport
   React.useEffect(() => {
     let meta = document.querySelector("meta[name=viewport]");
@@ -174,6 +293,8 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
   const [requests, setRequests] = useState([]);
   const [stats, setStats] = useState({ approved: 0, rejected: 0, pending: 0, usedLimit: 0 });
   const [showRequestDialog, setShowRequestDialog] = useState(false);
+  const [showRfidPopup, setShowRfidPopup] = useState(false); // false | 'register' | 'warning'
+  const [isRfidRegistered, setIsRfidRegistered] = useState(true);
   const [showRoomByModal, setShowRoomByModal] = useState(false);
   const [showDayByModal, setShowDayByModal] = useState(false);
   const [rooms, setRooms] = useState([]);
@@ -200,14 +321,40 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
 
   const timeSlots = generateTimeSlots();
 
-  // Fetch booking requests
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchRequests();
     fetchRooms();
+    checkRfidStatus();
     const today = new Date().toISOString().split('T')[0];
     setSelectedDate(today);
   }, []);
+
+  const checkRfidStatus = async () => {
+    // Admin ที่ embed มาจาก dashboard ไม่ block การจอง แม้ยังไม่ลง RFID
+    if (embeddedMode) {
+      setIsRfidRegistered(true);
+      return;
+    }
+    try {
+      const res = await fetch('/api/rfid-register-status', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setIsRfidRegistered(data.is_rfid_registered);
+          if (!data.is_rfid_registered) {
+            if (data.has_pending_request) {
+              setShowRfidPopup('warning');
+            } else {
+              setShowRfidPopup('register');
+            }
+          }
+        }
+      }
+    } catch { /* silent */ }
+  };
 
   const fetchRooms = async () => {
     try {
@@ -570,8 +717,16 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
   };
 
   return (
-    <div className="room-booking-layout">
-      {/* Header */}
+    <div className="room-booking-layout" style={embeddedMode ? { background: 'transparent', padding: 0 } : {}}>
+      {/* RFID Register Popup */}
+      {showRfidPopup && (
+        <RfidStatusPopup
+          mode={showRfidPopup}
+          onClose={() => setShowRfidPopup(false)}
+        />
+      )}
+      {/* Header — ซ่อนเมื่อ embed ใน AdminDashboard */}
+      {!embeddedMode && (
       <header className="booking-header">
         <div className="header-content">
           <div className="logo-section">
@@ -593,6 +748,10 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
         </div>
 
         <button className="request-btn-main" onClick={() => {
+          if (!isRfidRegistered) {
+            setShowRfidPopup('warning');
+            return;
+          }
           setSelectedSlots([]);
           setRoomSelections(null);
           setDaySelections(null);
@@ -604,6 +763,31 @@ const RoomBooking = ({ user, onLogout, onNavigate }) => {
           <i className="fas fa-plus"></i> ส่งคำขอใหม่
         </button>
       </header>
+      )}
+
+      {/* Embedded header — แสดงเฉพาะตอน embed */}
+      {embeddedMode && (
+        <div style={{ marginBottom: 20 }}>
+          <div className="page-title-box" style={{ marginBottom: 16 }}>
+            <span className="page-title">Room Booking</span>
+          </div>
+          <button className="request-btn-main" onClick={() => {
+            if (!isRfidRegistered) {
+              setShowRfidPopup('warning');
+              return;
+            }
+            setSelectedSlots([]);
+            setRoomSelections(null);
+            setDaySelections(null);
+            setRangeStartSlot(null);
+            setCurrentDay(null);
+            setCurrentRoom(null);
+            setShowRequestDialog(true);
+          }}>
+            <i className="fas fa-plus"></i> ส่งคำขอใหม่
+          </button>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="stats-grid">

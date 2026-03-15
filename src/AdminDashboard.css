@@ -343,24 +343,26 @@ tbody tr:hover {
 }
 
 /* Dashboard Actions */
-.btn-accept {
-  color: green !important;
-  font-weight: 600;
-  cursor: pointer;
+.action-link.accept {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #a5d6a7;
 }
 
-.btn-accept:hover {
-  text-decoration: underline;
+.action-link.accept:hover {
+  background: #2e7d32;
+  color: #fff;
 }
 
-.btn-decline {
-  color: #d90429 !important;
-  font-weight: 600;
-  cursor: pointer;
+.action-link.decline {
+  background: #fff1f1;
+  color: #d90429;
+  border: 1px solid #f5b5b5;
 }
 
-.btn-decline:hover {
-  text-decoration: underline;
+.action-link.decline:hover {
+  background: #d90429;
+  color: #fff;
 }
 
 /* No Users Message */
