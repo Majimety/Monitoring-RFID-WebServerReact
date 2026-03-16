@@ -461,7 +461,9 @@ def check_is_user_id_exist_except_id(user_id, current_id):
 # =====================
 # Door Command State (per-room)
 # =====================
-room_commands = {}  # { room_name: "open" | "close" | "idle" }
+room_commands = {}  # { room_name: "open" | "close" }
+room_command_time = {}  # { room_name: datetime } — เก็บเวลาที่ set command
+COMMAND_TTL = 10  # วิ — command จะหมดอายุหลัง 10 วิ ถ้า ESP32 ไม่ได้ poll
 room_last_seen = {}  # { room_name: datetime }
 
 
@@ -575,10 +577,12 @@ def lookup_user_by_student_id():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/door/open", methods=["POST"])
 def door_open():
     data = request.get_json(silent=True) or {}
     room = data.get("room", "")
     room_commands[room] = "open"
+    room_command_time[room] = datetime.utcnow()
     try:
         import jwt as pyjwt
 
@@ -603,6 +607,7 @@ def door_close():
     data = request.get_json(silent=True) or {}
     room = data.get("room", "")
     room_commands[room] = "close"
+    room_command_time[room] = datetime.utcnow()
     try:
         import jwt as pyjwt
 
@@ -627,7 +632,17 @@ def get_door_command():
     room = request.args.get("room", "")
     if room:
         room_last_seen[room] = datetime.utcnow()
-    cmd = room_commands.pop(room, "idle")
+    cmd = "idle"
+    if room in room_commands:
+        # เช็ค TTL — command อยู่ได้นาน COMMAND_TTL วิ
+        age = (
+            datetime.utcnow() - room_command_time.get(room, datetime.utcnow())
+        ).total_seconds()
+        if age <= COMMAND_TTL:
+            cmd = room_commands[room]
+        # clear command หลัง ESP32 อ่านแล้ว (หรือ expired)
+        del room_commands[room]
+        room_command_time.pop(room, None)
     return jsonify({"command": cmd})
 
 
@@ -727,11 +742,12 @@ def get_uuid():
         },
     )
 
-    return (
-        jsonify({"status": "ok", "user": user})
-        if user
-        else (jsonify({"status": "denied"}), 403)
-    )
+    # HTTP status code ต้องสะท้อน result จริง เพื่อให้ ESP32 อ่านถูกต้อง
+    # 200 = granted (เปิดประตู), 403 = denied (ไม่เปิด)
+    if result == "granted":
+        return jsonify({"status": "ok", "user": user})
+    else:
+        return jsonify({"status": "denied", "user": user}), 403
 
 
 @app.route("/api/latest_uuid", methods=["GET"])
