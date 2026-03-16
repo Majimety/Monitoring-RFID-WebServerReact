@@ -15,7 +15,7 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);
 const char *ssid         = "ADF";
 const char *password     = "ADF12345";
 const char *apiIPAddress = "http://10.53.39.157:5000"; // แก้ไขทุกครั้งที่เทส
-const char *roomName     = "EN4101";                   // ชื่อห้องของ ESP32 ตัวนี้
+const char *roomName     = "EN4401";                   // ชื่อห้องของ ESP32 ตัวนี้
 
 // =====================
 // Timing
@@ -211,16 +211,30 @@ void checkDoorCommand()
   if (code == 200)
   {
     String payload = http.getString();
-    if (payload.indexOf("\"command\": \"open\"") != -1)
+    Serial.print("[CMD] Poll: ");
+    Serial.println(payload);
+
+    // Flask 3.x returns {"command": "open"} with space — support both
+    bool isOpen  = payload.indexOf("\"command\":\"open\"")  != -1 ||
+                   payload.indexOf("\"command\": \"open\"") != -1;
+    bool isClose = payload.indexOf("\"command\":\"close\"")  != -1 ||
+                   payload.indexOf("\"command\": \"close\"") != -1;
+
+    if (isOpen)
     {
       Serial.println("[CMD] Web command: OPEN");
       openDoor();
     }
-    else if (payload.indexOf("\"command\": \"close\"") != -1)
+    else if (isClose)
     {
       Serial.println("[CMD] Web command: CLOSE");
       digitalWrite(RELAY_PIN, DOOR_CLOSE);
     }
+  }
+  else
+  {
+    Serial.print("[CMD] Poll failed. Code: ");
+    Serial.println(code);
   }
   http.end();
 }
