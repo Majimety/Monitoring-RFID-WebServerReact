@@ -79,7 +79,7 @@ const Sidebar = ({ currentPage, onPageChange, onLogout, user, sidebarOpen, onAva
 
 
 // ==================== Right Panel Component ====================
-const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdit, onEditUser, adminUser, prefillData, onClearPrefill, profileMode, onCloseProfile }) => {
+const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, onDismissRegistered, editingUser, onCancelEdit, onEditUser, adminUser, prefillData, onClearPrefill, profileMode, onCloseProfile }) => {
   const [formData, setFormData] = useState({
     uuid: '',
     user_id: '',
@@ -188,8 +188,15 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
       const isNewCard = uuid && uuid !== prevUuidRef.current;
       prevUuidRef.current = uuid || '';
       if (isNewCard) {
-        // New card scanned → reset all fields for fresh entry
-        setFormData({ uuid: uuid, user_id: '', first_name: '', last_name: '', email: '', role: 'student' });
+        // New card scanned — ถ้ามี prefill data อยู่ (กด Select มาแล้ว)
+        // ให้เติมแค่ uuid ไม่ต้อง reset ฟอร์ม เพราะข้อมูล user ยังถูกต้องอยู่
+        const currentlyHasPrefill = !!(formData.first_name && formData.email);
+        if (currentlyHasPrefill) {
+          setFormData(prev => ({ ...prev, uuid: uuid }));
+        } else {
+          // ไม่มี prefill → reset ฟอร์มสำหรับ fresh entry
+          setFormData({ uuid: uuid, user_id: '', first_name: '', last_name: '', email: '', role: 'student' });
+        }
       } else {
         // uuid cleared (reset to idle) → just update uuid field
         setFormData(prev => ({ ...prev, uuid: uuid || '' }));
@@ -482,7 +489,7 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
           </div>
           <button
             type="button"
-            onClick={() => { if (onFormSubmit) onFormSubmit(); }}
+            onClick={() => { if (onDismissRegistered) onDismissRegistered(); }}
             style={{
               width: '100%', padding: '10px', borderRadius: 8,
               background: '#d88b8b', color: 'white', border: 'none',
@@ -500,10 +507,20 @@ const RightPanel = ({ uuid, uuidUserInfo, onFormSubmit, editingUser, onCancelEdi
           <h3 style={{ marginBottom: 6, color: '#333' }}>Add User</h3>
 
           {/* แสดงสถานะ UUID */}
-          {!formData.uuid && (
+          {/* กล่องส้ม: (1) แตะบัตรแล้วแต่ยังไม่ Select  (2) Select แล้วแต่ยังไม่แตะบัตร */}
+          {((uuid && !hasPrefill) || (!uuid && hasPrefill)) && (
             <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 6, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#92400e' }}>
               <i className="fa-solid fa-circle-info" style={{ marginRight: 6 }}></i>
-              บัตรใหม่ — กรอกข้อมูลเพื่อลงทะเบียน
+              {uuid && !hasPrefill
+                ? 'บัตรใหม่ — Select User ID เพื่อลงทะเบียน'
+                : 'ผู้ใช้ใหม่ — แตะบัตร RFID เพื่อลงทะเบียน'}
+            </div>
+          )}
+          {/* กล่องเขียว: มีทั้ง uuid และ prefill แล้ว พร้อม Add */}
+          {uuid && hasPrefill && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#166534' }}>
+              <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }}></i>
+              ดึงข้อมูลแล้ว — กดปุ่ม Add RFID เพื่อบันทึก
             </div>
           )}
 
@@ -1066,7 +1083,13 @@ const UsersTable = ({ onRefresh, onEditUser, onPrefillUser }) => {
     try {
       const response = await fetch('/api/users');
       const data = await response.json();
-      setUsers(data.users || []);
+      // เรียง admin ขึ้นบนสุด ที่เหลือตามลำดับเดิม
+      const sorted = [...(data.users || [])].sort((a, b) => {
+        if (a.role === 'admin' && b.role !== 'admin') return -1;
+        if (a.role !== 'admin' && b.role === 'admin') return 1;
+        return 0;
+      });
+      setUsers(sorted);
 
       const token = localStorage.getItem('token');
       const allUsersRes = await fetch('/api/admin/all-users', {
@@ -1449,7 +1472,12 @@ const SystemSettings = ({ onSelectRoom, selectedRoom, refreshKey }) => {
           return room;
         })
       );
-      setRooms(updated);
+      // เรียง Online ขึ้นก่อน
+      setRooms([...updated].sort((a, b) => {
+        const aOnline = (a.doorOnline || a.rfidOnline) ? 1 : 0;
+        const bOnline = (b.doorOnline || b.rfidOnline) ? 1 : 0;
+        return bOnline - aOnline;
+      }));
     };
     poll();
     const interval = setInterval(poll, 3000);
@@ -2586,6 +2614,7 @@ const AdminDashboard = ({ user, onLogout }) => {
   const [uuid, setUuid] = useState('');
   const [uuidUserInfo, setUuidUserInfo] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [panelKey, setPanelKey] = useState(0); // increment เพื่อ remount RightPanel และ reset formData
   const [editingUser, setEditingUser] = useState(null);
   const [prefillData, setPrefillData] = useState(null);
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -2612,8 +2641,13 @@ const AdminDashboard = ({ user, onLogout }) => {
   }, []);
 
   const handleFormSubmit = () => {
+    // ไปหน้า RFID Registered และ refresh ตาราง
+    setCurrentPage('users');
     setRefreshKey(prev => prev + 1);
-    // Reset uuid via API — the socket uuid_update event will clear uuid state naturally
+    // Reset Right Panel กลับ idle — remount เพื่อล้าง formData ทั้งหมด
+    setPrefillData(null);
+    setEditingUser(null);
+    setPanelKey(prev => prev + 1);
     fetch('/api/reset_uuid', { method: 'POST' })
       .then(() => {
         setUuid('');
@@ -2623,6 +2657,15 @@ const AdminDashboard = ({ user, onLogout }) => {
         setUuid('');
         setUuidUserInfo(null);
       });
+  };
+
+  // ปุ่ม "ตกลง" เมื่อสแกนบัตรที่ลงทะเบียนแล้ว — แค่ reset idle ไม่ navigate
+  const handleDismissRegistered = () => {
+    setPanelKey(prev => prev + 1); // remount RightPanel เพื่อล้าง formData
+    fetch('/api/reset_uuid', { method: 'POST' }).catch(() => {});
+    setUuid('');
+    setUuidUserInfo(null);
+    setPrefillData(null);
   };
 
   const handleEditUser = (user) => {
@@ -2639,6 +2682,11 @@ const AdminDashboard = ({ user, onLogout }) => {
 
   const handleCancelEdit = () => {
     setEditingUser(null);
+    setPrefillData(null);
+    setPanelKey(prev => prev + 1); // remount RightPanel เพื่อล้าง formData
+    fetch('/api/reset_uuid', { method: 'POST' }).catch(() => {});
+    setUuid('');
+    setUuidUserInfo(null);
   };
 
   // Add room — lives at top level so no stale closure issues
@@ -2689,7 +2737,7 @@ const AdminDashboard = ({ user, onLogout }) => {
       case 'dashboard':
         return <DashboardContent onPrefillUser={handlePrefillUser} />;
       case 'users':
-        return <UsersTable onRefresh={refreshKey} onEditUser={handleEditUser} onPrefillUser={handlePrefillUser} />;
+        return <UsersTable key={refreshKey} onRefresh={refreshKey} onEditUser={handleEditUser} onPrefillUser={handlePrefillUser} />;
       case 'register_requests':
         return <RegisterRequestsPage onPrefillUser={handlePrefillUser} />;
       case 'settings':
@@ -2705,7 +2753,7 @@ const AdminDashboard = ({ user, onLogout }) => {
       case 'bookings':
         return <BookingsPage />;
       case 'logs':
-        return <AccessLogs />;
+        return <AccessLogs key={Date.now()} />;
       case 'my-booking':
         return (
           <RoomBooking
@@ -2736,9 +2784,11 @@ const AdminDashboard = ({ user, onLogout }) => {
     }
     return (
       <RightPanel
+        key={panelKey}
         uuid={uuid}
         uuidUserInfo={uuidUserInfo}
         onFormSubmit={handleFormSubmit}
+        onDismissRegistered={handleDismissRegistered}
         editingUser={editingUser}
         onCancelEdit={handleCancelEdit}
         onEditUser={handleEditUser}
