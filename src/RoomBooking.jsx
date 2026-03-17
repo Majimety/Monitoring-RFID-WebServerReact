@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import './RoomBooking.css';
 
 // ==================== Notification Bell ====================
@@ -279,6 +279,435 @@ const RfidStatusPopup = ({ mode, onClose }) => {
   );
 };
 
+// ==================== Admin Booking View (Embedded Tab UI) ====================
+const AdminBookingView = ({
+  rooms, selectedRoom, setSelectedRoom,
+  selectedDate, setSelectedDate,
+  selectedSlots, setSelectedSlots,
+  rangeStartSlot, setRangeStartSlot,
+  currentDay, setCurrentDay,
+  currentRoom, setCurrentRoom,
+  weekStart, setWeekStart,
+  weekDays, timeSlots, today,
+  isSlotSelected, isSlotPast, handleSlotClick,
+  confirmRoomSelection, confirmDaySelection,
+  floorKeys, floorGroups, selectedFloor, setSelectedFloor, roomsOnFloor,
+  shiftWeek, formatWeekLabel,
+  showRequestDialog, setShowRequestDialog,
+  roomSelections, setRoomSelections,
+  daySelections, setDaySelections,
+  handleSubmitRequest, closeRequestDialog,
+  detailError, setDetailError,
+  bookingError, setBookingError,
+  showSuccessPopup, setShowSuccessPopup,
+  requests, stats, getStatusBadge,
+}) => {
+  const [activeTab, setActiveTab] = React.useState('room'); // 'room' | 'day'
+
+  // ── Booked slots state ──
+  // roomByBooked: { [dateStr]: [{start_time, end_time}] }  สำหรับ tab ห้อง
+  // dayByBooked:  { [room]:    [{start_time, end_time}] }  สำหรับ tab วัน
+  const [roomByBooked, setRoomByBooked] = React.useState({});
+  const [dayByBooked,  setDayByBooked]  = React.useState({});
+
+  // fetch booked slots ของห้องที่เลือก ทุกวันในสัปดาห์ (tab ห้อง)
+  React.useEffect(() => {
+    if (!selectedRoom || !weekDays || weekDays.length === 0) return;
+    setRoomByBooked({}); // reset ก่อน เพื่อไม่ให้ข้อมูลห้องเก่าค้างอยู่
+    let cancelled = false;
+    const fetchAll = async () => {
+      const results = {};
+      await Promise.all(weekDays.map(async (dayObj) => {
+        try {
+          const res = await fetch(
+            `/api/bookings/schedule?room=${encodeURIComponent(selectedRoom)}&date=${dayObj.dateStr}`
+          );
+          if (res.ok) {
+            const data = await res.json();
+            results[dayObj.dateStr] = data.booked_slots || [];
+          }
+        } catch { /* silent */ }
+      }));
+      if (!cancelled) setRoomByBooked(results);
+    };
+    fetchAll();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRoom, weekStart]); // ใช้ weekStart แทน weekDays เพื่อป้องกัน infinite loop
+
+  // fetch booked slots ของทุกห้องในชั้น สำหรับวันที่เลือก (tab วัน)
+  React.useEffect(() => {
+    if (!selectedDate || !roomsOnFloor || roomsOnFloor.length === 0) return;
+    setDayByBooked({}); // reset ก่อน
+    let cancelled = false;
+    const fetchAll = async () => {
+      const results = {};
+      await Promise.all(roomsOnFloor.map(async (room) => {
+        try {
+          const res = await fetch(
+            `/api/bookings/schedule?room=${encodeURIComponent(room)}&date=${selectedDate}`
+          );
+          if (res.ok) {
+            const data = await res.json();
+            results[room] = data.booked_slots || [];
+          }
+        } catch { /* silent */ }
+      }));
+      if (!cancelled) setDayByBooked(results);
+    };
+    fetchAll();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, selectedFloor]); // ใช้ selectedFloor แทน roomsOnFloor เพื่อป้องกัน infinite loop
+
+  // ตรวจว่า slot นั้น overlap กับ booking ที่ approved แล้ว
+  const isRoomSlotBooked = (dateStr, timeStr) => {
+    const slots = roomByBooked[dateStr] || [];
+    const t = timeToMinutes(timeStr);
+    return slots.some(s => t >= timeToMinutes(s.start_time) && t < timeToMinutes(s.end_time));
+  };
+
+  const isDaySlotBooked = (room, timeStr) => {
+    const slots = dayByBooked[room] || [];
+    const t = timeToMinutes(timeStr);
+    return slots.some(s => t >= timeToMinutes(s.start_time) && t < timeToMinutes(s.end_time));
+  };
+
+  // helper แปลง HH:MM เป็นนาที (ใช้ใน isBooked)
+  const timeToMinutes = (t) => {
+    const [hh, mm] = (t || '00:00').split(':').map(Number);
+    return hh * 60 + (mm || 0);
+  };
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setSelectedSlots([]);
+    setRangeStartSlot(null);
+    setCurrentDay(null);
+    setCurrentRoom(null);
+  };
+
+  const tabBtnStyle = (tab) => ({
+    padding: '9px 28px',
+    borderRadius: '10px',
+    border: activeTab === tab ? '2px solid #fff' : '1px solid #ccc',
+    background: activeTab === tab ? '#c0675f' : 'white',
+    color: activeTab === tab ? 'white' : '#555',
+    cursor: 'pointer',
+    fontWeight: activeTab === tab ? '700' : '500',
+    fontSize: '14px',
+    boxShadow: activeTab === tab ? '0 0 0 3px #c0675f55, inset 0 1px 3px rgba(0,0,0,0.2)' : 'none',
+    outline: activeTab === tab ? '2px solid #c0675f' : 'none',
+    transform: activeTab === tab ? 'scale(1.04)' : 'scale(1)',
+    transition: 'all 0.15s',
+  });
+
+  return (
+    <div>
+      {/* Title */}
+      <div className="page-title-box" style={{ marginBottom: 16 }}>
+        <span className="page-title">Room Booking</span>
+      </div>
+
+      {/* Tab Buttons */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+        <button style={tabBtnStyle('room')} onClick={() => handleTabChange('room')}>
+          <i className="fa-solid fa-door-open" style={{ marginRight: 6 }}></i>เลือกจองตามห้อง
+        </button>
+        <button style={tabBtnStyle('day')} onClick={() => handleTabChange('day')}>
+          <i className="fa-solid fa-calendar-day" style={{ marginRight: 6 }}></i>เลือกจองตามวัน
+        </button>
+      </div>
+
+      {/* ── Tab: เลือกจองตามห้อง ── */}
+      {activeTab === 'room' && (
+        <div style={{ background: '#f3eaea', borderRadius: 15, padding: 20, boxShadow: '0 2px 6px rgba(0,0,0,.15)', marginBottom: 20 }}>
+          {/* Room selector */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+              ห้อง:
+              <select
+                value={selectedRoom}
+                onChange={(e) => {
+                  setSelectedRoom(e.target.value);
+                  setSelectedSlots([]);
+                  setRangeStartSlot(null);
+                  setCurrentDay(null);
+                }}
+                style={{ padding: '7px 12px', border: '1px solid #ddd', borderRadius: 6, fontSize: 14 }}
+              >
+                {rooms.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <p style={{ color: '#d88b8b', fontSize: 13, fontWeight: 600, background: '#fff5f5', padding: '8px 12px', borderRadius: 6, border: '1px solid #fdd', marginBottom: 12 }}>
+            <i className="fas fa-info-circle"></i> คลิก 2 ครั้งเพื่อเลือกช่วงเวลาตั้งแต่เริ่มต้นถึงสิ้นสุด | เลือกได้เพียงวันเดียว
+          </p>
+
+          {/* Week nav */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <button type="button" onClick={() => shiftWeek(-1)}
+              style={{ background: '#d88b8b', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', color: 'white', fontSize: 15 }}>
+              <i className="fa-solid fa-chevron-left"></i>
+            </button>
+            <span style={{ fontWeight: 600, fontSize: 14, color: '#333' }}>สัปดาห์: {formatWeekLabel(weekStart)}</span>
+            <button type="button" onClick={() => shiftWeek(1)}
+              style={{ background: '#d88b8b', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', color: 'white', fontSize: 15 }}>
+              <i className="fa-solid fa-chevron-right"></i>
+            </button>
+          </div>
+
+          {/* Grid */}
+          <div className="grid-wrapper">
+            <table className="booking-grid">
+              <thead>
+                <tr>
+                  <th>วัน / เวลา</th>
+                  {timeSlots.map(time => <th key={time}>{time}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {weekDays.map((dayObj) => {
+                  const isPast = dayObj.date < today;
+                  return (
+                    <tr key={dayObj.dateStr}>
+                      <td className="day-label">
+                        <span className="day-name">{dayObj.name}</span>
+                        <span className="day-date">{dayObj.date.getDate()}</span>
+                      </td>
+                      {timeSlots.map(time => {
+                        const isSelected = isSlotSelected(dayObj.dateStr, time);
+                        const isPastSlot = isPast || isSlotPast(dayObj.dateStr, time);
+                        const isBooked   = !isPastSlot && isRoomSlotBooked(dayObj.dateStr, time);
+                        const blocked    = isPastSlot || isBooked;
+                        return (
+                          <td key={time}
+                            className={`slot${isSelected ? ' selected' : ''}${blocked ? ' disabled' : ''}`}
+                            title={isBooked ? 'มีการจองแล้ว' : undefined}
+                            style={isBooked ? { background: '#fde8e8', cursor: 'not-allowed' } : undefined}
+                            onClick={() => !blocked && handleSlotClick({ date: dayObj.dateStr, time })}
+                          />
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <button className="request-btn" onClick={confirmRoomSelection}
+              style={{ width: '100%' }}>
+              ยืนยันการจอง
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab: เลือกจองตามวัน ── */}
+      {activeTab === 'day' && (
+        <div style={{ background: '#f3eaea', borderRadius: 15, padding: 20, boxShadow: '0 2px 6px rgba(0,0,0,.15)', marginBottom: 20 }}>
+          {/* Date picker */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+              วันที่:
+              <input
+                type="date"
+                value={selectedDate}
+                min={(() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; })()}
+                onChange={(e) => {
+                  setSelectedDate(e.target.value);
+                  setSelectedSlots([]);
+                  setRangeStartSlot(null);
+                  setCurrentRoom(null);
+                }}
+                style={{ padding: '7px 12px', border: '1px solid #ddd', borderRadius: 6, fontSize: 14 }}
+              />
+            </label>
+          </div>
+
+          {/* Floor nav */}
+          {floorKeys.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <button type="button"
+                onClick={() => { const idx = floorKeys.indexOf(selectedFloor); if (idx > 0) { setSelectedFloor(floorKeys[idx-1]); setSelectedSlots([]); setRangeStartSlot(null); setCurrentRoom(null); } }}
+                disabled={floorKeys.indexOf(selectedFloor) === 0}
+                style={{ background: '#d88b8b', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: floorKeys.indexOf(selectedFloor) === 0 ? 'not-allowed' : 'pointer', color: 'white', fontSize: 15, opacity: floorKeys.indexOf(selectedFloor) === 0 ? 0.4 : 1 }}>
+                <i className="fa-solid fa-chevron-left"></i>
+              </button>
+              <div style={{ flex: 1, textAlign: 'center', fontWeight: 700, fontSize: 14, color: '#333', background: '#fff5f5', borderRadius: 8, padding: '8px 12px', border: '1px solid #fdd' }}>
+                {selectedFloor === 'อื่นๆ' ? 'อื่นๆ' : (() => {
+                  const list = floorGroups[selectedFloor] || [];
+                  if (list.length === 0) return `ชั้นที่ ${selectedFloor}`;
+                  if (list.length === 1) return `ชั้นที่ ${selectedFloor}  (${list[0]})`;
+                  return `ชั้นที่ ${selectedFloor}  (${list[0]} - ${list[list.length-1]})`;
+                })()}
+              </div>
+              <button type="button"
+                onClick={() => { const idx = floorKeys.indexOf(selectedFloor); if (idx < floorKeys.length-1) { setSelectedFloor(floorKeys[idx+1]); setSelectedSlots([]); setRangeStartSlot(null); setCurrentRoom(null); } }}
+                disabled={floorKeys.indexOf(selectedFloor) === floorKeys.length - 1}
+                style={{ background: '#d88b8b', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: floorKeys.indexOf(selectedFloor) === floorKeys.length-1 ? 'not-allowed' : 'pointer', color: 'white', fontSize: 15, opacity: floorKeys.indexOf(selectedFloor) === floorKeys.length-1 ? 0.4 : 1 }}>
+                <i className="fa-solid fa-chevron-right"></i>
+              </button>
+            </div>
+          )}
+
+          <p style={{ color: '#d88b8b', fontSize: 13, fontWeight: 600, background: '#fff5f5', padding: '8px 12px', borderRadius: 6, border: '1px solid #fdd', marginBottom: 12 }}>
+            <i className="fas fa-info-circle"></i> กรุณาเลือกเพียงห้องเดียว | คลิก 2 ครั้งเพื่อเลือกช่วงเวลา
+          </p>
+
+          {/* Grid */}
+          <div className="grid-wrapper">
+            <table className="booking-grid">
+              <thead>
+                <tr>
+                  <th>ห้อง / เวลา</th>
+                  {timeSlots.map(time => <th key={time}>{time}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {roomsOnFloor.map(room => (
+                  <tr key={room}>
+                    <td>{room}</td>
+                    {timeSlots.map(time => {
+                      const isSelected = isSlotSelected(null, time, room);
+                      const isPastSlot = isSlotPast(selectedDate, time);
+                      const isBooked   = !isPastSlot && isDaySlotBooked(room, time);
+                      const blocked    = isPastSlot || isBooked;
+                      return (
+                        <td key={time}
+                          className={`slot${isSelected ? ' selected' : ''}${blocked ? ' disabled' : ''}`}
+                          title={isBooked ? 'มีการจองแล้ว' : undefined}
+                          style={isBooked ? { background: '#fde8e8', cursor: 'not-allowed' } : undefined}
+                          onClick={() => !blocked && handleSlotClick({ room, time })}
+                        />
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <button className="request-btn" onClick={confirmDaySelection}
+              style={{ width: '100%' }}>
+              ยืนยันการจอง
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Request Form Modal (หลังยืนยัน grid) */}
+      {showRequestDialog && (roomSelections || daySelections) && (
+        <div className="modal open">
+          <div className="modal-overlay" onClick={closeRequestDialog}></div>
+          <div className="modal-content">
+            <h2 id="formTitle">รายละเอียดการจอง</h2>
+            <form onSubmit={handleSubmitRequest}>
+              <label>ห้อง
+                <input name="room" value={roomSelections?.room || daySelections?.room || ''} readOnly required />
+              </label>
+              <label>วันที่จอง
+                <input type="date" name="date" value={roomSelections?.date || daySelections?.date || ''} readOnly required />
+              </label>
+              <label>เวลาเริ่ม
+                <input type="time" name="start_time" value={roomSelections?.start_time || daySelections?.start_time || ''} readOnly required />
+              </label>
+              <label>เวลาสิ้นสุด
+                <input type="time" name="end_time" value={roomSelections?.end_time || daySelections?.end_time || ''} readOnly required />
+              </label>
+              <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 14 }}>
+                เหตุผล / วัตถุประสงค์ <span style={{ color: '#e74c3c' }}>*</span>
+                <textarea name="detail" rows="3" placeholder="เหตุผลในการใช้ห้อง *" required
+                  style={{ borderColor: detailError ? '#e74c3c' : undefined }}
+                  onChange={() => setDetailError(false)}
+                ></textarea>
+              </label>
+              {detailError && (
+                <p style={{ color: '#e74c3c', fontSize: 13, marginTop: -10, marginBottom: 10 }}>* จำเป็นต้องระบุเหตุผล</p>
+              )}
+              <div className="modal-actions">
+                <button type="submit" className="request-btn">ยืนยันการจอง</button>
+                <button type="button" className="request-btn cancel" onClick={closeRequestDialog}>ยกเลิก</button>
+              </div>
+              {bookingError && (
+                <p style={{ color: '#e74c3c', fontSize: 13, marginTop: 10, textAlign: 'center' }}>
+                  <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 4 }}></i>{bookingError}
+                </p>
+              )}
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Success Popup — Admin */}
+      {showSuccessPopup && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)' }} onClick={() => setShowSuccessPopup(false)} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 20, padding: '40px 36px', maxWidth: 380, width: '90%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#e8f5e9', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
+              <i className="fa-solid fa-check" style={{ fontSize: 32, color: '#4caf50' }}></i>
+            </div>
+            <h3 style={{ color: '#333', fontSize: 20, fontWeight: 700, marginBottom: 10 }}>จองห้องสำเร็จ!</h3>
+            <p style={{ color: '#666', fontSize: 14, marginBottom: 28, lineHeight: 1.6 }}>
+              ห้องถูกจองและอนุมัติเรียบร้อยแล้ว
+            </p>
+            <button onClick={() => setShowSuccessPopup(false)}
+              style={{ background: '#d88b8b', color: '#fff', border: 'none', borderRadius: 10, padding: '12px 48px', fontSize: 15, fontWeight: 600, cursor: 'pointer', width: '100%' }}>
+              ตกลง
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* My Requests Table */}
+      <div className="section" style={{ marginTop: 4 }}>
+        <div className="section-title">My Requests</div>
+        <div className="table-container">
+          <div className="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>ห้อง</th>
+                  <th>วันที่จอง</th>
+                  <th>เวลาเริ่ม</th>
+                  <th>เวลาสิ้นสุด</th>
+                  <th>รายละเอียด</th>
+                  <th>สถานะ</th>
+                  <th>ผู้ตรวจสอบ</th>
+                  <th>หมายเหตุ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {requests.length === 0 ? (
+                  <tr><td colSpan="8" style={{ textAlign: 'center', color: '#aaa' }}>ไม่มีข้อมูล</td></tr>
+                ) : requests.map((req, idx) => {
+                  const badge = getStatusBadge(req.status);
+                  return (
+                    <tr key={idx}>
+                      <td>{req.room}</td>
+                      <td>{req.date}</td>
+                      <td>{req.start_time}</td>
+                      <td>{req.end_time}</td>
+                      <td>{req.detail}</td>
+                      <td><span className={`status-badge ${badge.class}`}>{badge.text}</span></td>
+                      <td>{req.approved_by_name || '-'}</td>
+                      <td>{req.remark || '-'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
   // Ensure mobile viewport
   React.useEffect(() => {
@@ -309,6 +738,39 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
   const [rangeStartSlot, setRangeStartSlot] = useState(null);
   const [currentDay, setCurrentDay] = useState(null);
   const [currentRoom, setCurrentRoom] = useState(null);
+  const [detailError, setDetailError] = useState(false);
+  const [bookingError, setBookingError] = useState('');
+
+  // ── Booked slots สำหรับ student modal ──
+  const [studentRoomBooked, setStudentRoomBooked] = useState({});
+  const [studentDayBooked,  setStudentDayBooked]  = useState({});
+  const [showSuccessPopup, setShowSuccessPopup] = useState(false);
+
+  const getStartOfWeek = (date) => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    const day = d.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
+    const diffToMonday = (day + 6) % 7; // Monday -> 0, Sunday -> 6
+    d.setDate(d.getDate() - diffToMonday);
+    return d;
+  };
+
+  const addDays = (date, days) => {
+    const d = new Date(date);
+    d.setDate(d.getDate() + days);
+    return d;
+  };
+
+  // ใช้ local date string แทน toISOString() (UTC) เพื่อป้องกันวันเลื่อน 1 วัน ใน UTC+7
+  const formatIsoDate = (date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const [weekStart, setWeekStart] = useState(getStartOfWeek(new Date()));
+
   const days = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์', 'เสาร์', 'อาทิตย์'];
   const startHour = 8;
   const endHour = 20;
@@ -323,6 +785,19 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
   };
 
   const timeSlots = generateTimeSlots();
+
+  const today = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
+  const weekDays = useMemo(() => {
+    return days.map((name, idx) => {
+      const date = addDays(weekStart, idx);
+      return { name, date, dateStr: formatIsoDate(date) };
+    });
+  }, [days, weekStart]);
 
   // Close profile dropdown when clicking outside
   useEffect(() => {
@@ -340,8 +815,9 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
     fetchRequests();
     fetchRooms();
     checkRfidStatus();
-    const today = new Date().toISOString().split('T')[0];
-    setSelectedDate(today);
+    const todayStr = new Date().toISOString().split('T')[0];
+    setSelectedDate(todayStr);
+    setWeekStart(getStartOfWeek(new Date()));
   }, []);
 
   const checkRfidStatus = async () => {
@@ -375,7 +851,17 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
       const res = await fetch('/api/rooms');
       if (res.ok) {
         const data = await res.json();
-        const roomNames = (data.rooms || []).map(r => r.name);
+        // เรียงห้องตามชั้น: EN41xx < EN42xx < EN43xx ... แล้วตามตัวอักษร
+        const roomNames = (data.rooms || [])
+          .map(r => r.name)
+          .sort((a, b) => {
+            const fa = a.match(/^EN\d(\d)/i);
+            const fb = b.match(/^EN\d(\d)/i);
+            const floorA = fa ? parseInt(fa[1], 10) : 99;
+            const floorB = fb ? parseInt(fb[1], 10) : 99;
+            if (floorA !== floorB) return floorA - floorB;
+            return a.localeCompare(b);
+          });
         setRooms(roomNames);
         if (roomNames.length > 0) setSelectedRoom(roomNames[0]);
       }
@@ -429,25 +915,32 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
 
   // Handle slot selection with improved logic
   const handleSlotClick = (slot) => {
-    if (slot.day !== undefined) {
+    if (slot.date) {
       // ========== ROOM BY MODAL ==========
-      // Check if switching to a different day
-      if (currentDay !== null && currentDay !== slot.day) {
-        // Reset when switching days
+      const slotDate = slot.date;
+      const slotDateObj = new Date(slotDate);
+      slotDateObj.setHours(0, 0, 0, 0);
+
+      // Prevent selecting past dates
+      if (slotDateObj < today) return;
+
+      // Check if switching to a different date
+      if (currentDay !== null && currentDay !== slotDate) {
+        // Reset when switching dates
         setSelectedSlots([]);
         setRangeStartSlot(null);
-        setCurrentDay(slot.day);
+        setCurrentDay(slotDate);
       } else if (currentDay === null) {
-        setCurrentDay(slot.day);
+        setCurrentDay(slotDate);
       }
 
       if (rangeStartSlot === null) {
         // First click - start of range
-        setRangeStartSlot(slot);
-        setSelectedSlots([slot]);
+        setRangeStartSlot({ date: slotDate, time: slot.time });
+        setSelectedSlots([{ date: slotDate, time: slot.time }]);
       } else {
         // Second click - complete the range
-        if (rangeStartSlot.day === slot.day) {
+        if (rangeStartSlot.date === slotDate) {
           const startTime = timeToMinutes(rangeStartSlot.time);
           const endTime = timeToMinutes(slot.time);
           const minTime = Math.min(startTime, endTime);
@@ -458,17 +951,17 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
           timeSlots.forEach(time => {
             const minutes = timeToMinutes(time);
             if (minutes >= minTime && minutes <= maxTime) {
-              newSlots.push({ day: slot.day, time, dayOffset: slot.dayOffset });
+              newSlots.push({ date: slotDate, time });
             }
           });
 
           setSelectedSlots(newSlots);
           setRangeStartSlot(null);
         } else {
-          // Different day - reset and start new
-          setSelectedSlots([slot]);
-          setRangeStartSlot(slot);
-          setCurrentDay(slot.day);
+          // Different date - reset and start new
+          setSelectedSlots([{ date: slotDate, time: slot.time }]);
+          setRangeStartSlot({ date: slotDate, time: slot.time });
+          setCurrentDay(slotDate);
         }
       }
     } else {
@@ -516,10 +1009,10 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
     }
   };
 
-  const isSlotSelected = (day, time, room) => {
-    if (day !== null && day !== undefined) {
+  const isSlotSelected = (dateStr, time, room) => {
+    if (dateStr !== null && dateStr !== undefined) {
       return selectedSlots.some(s =>
-        s.day === day && s.time === time
+        s.date === dateStr && s.time === time
       );
     } else if (room !== null && room !== undefined) {
       return selectedSlots.some(s =>
@@ -533,7 +1026,7 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
   const computeRangesByDay = (selections) => {
     const groups = {};
     selections.forEach(s => {
-      const d = s.dayOffset;
+      const d = s.date;
       groups[d] = groups[d] || [];
       groups[d].push(timeToMinutes(s.time));
     });
@@ -563,6 +1056,119 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
     return [{ start: minutesToTime(minStart), end: minutesToTime(maxEnd) }];
   };
 
+  // ==================== Floor grouping for Day By Modal ====================
+  // Group rooms by floor: EN4101–EN4199 = ชั้น 1, EN4201–EN4299 = ชั้น 2, etc.
+  // Falls back to "อื่นๆ" for rooms that don't match ENxx## pattern
+  const getFloorFromRoom = (roomName) => {
+    const m = roomName.match(/^EN\d(\d)/i); // EN4[1]01 → floor digit
+    if (m) return parseInt(m[1], 10);
+    return null; // อื่นๆ
+  };
+
+  const floorGroups = useMemo(() => {
+    const groups = {};
+    rooms.forEach(r => {
+      const fl = getFloorFromRoom(r);
+      const key = fl !== null ? fl : 'อื่นๆ';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(r);
+    });
+    return groups;
+  }, [rooms]);
+
+  const floorKeys = useMemo(() => {
+    return Object.keys(floorGroups).sort((a, b) => {
+      if (a === 'อื่นๆ') return 1;
+      if (b === 'อื่นๆ') return -1;
+      return Number(a) - Number(b);
+    });
+  }, [floorGroups]);
+
+  const [selectedFloor, setSelectedFloor] = useState(null); // null = not yet set
+
+  // Auto-set floor when floorKeys populate
+  useEffect(() => {
+    if (floorKeys.length > 0 && selectedFloor === null) {
+      setSelectedFloor(floorKeys[0]);
+    }
+  }, [floorKeys]);
+
+  const roomsOnFloor = useMemo(() => {
+    if (selectedFloor === null) return rooms;
+    return floorGroups[selectedFloor] || [];
+  }, [selectedFloor, floorGroups, rooms]);
+
+  // ── fetch booked slots สำหรับ student Room By Modal ──
+  useEffect(() => {
+    if (!selectedRoom || weekDays.length === 0) return;
+    setStudentRoomBooked({});
+    let cancelled = false;
+    const fetchAll = async () => {
+      const results = {};
+      await Promise.all(weekDays.map(async (dayObj) => {
+        try {
+          const res = await fetch(
+            `/api/bookings/schedule?room=${encodeURIComponent(selectedRoom)}&date=${dayObj.dateStr}`
+          );
+          if (res.ok) {
+            const d = await res.json();
+            results[dayObj.dateStr] = d.booked_slots || [];
+          }
+        } catch { /* silent */ }
+      }));
+      if (!cancelled) setStudentRoomBooked(results);
+    };
+    fetchAll();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRoom, weekStart]); // weekStart แทน weekDays ป้องกัน infinite loop
+
+  // ── fetch booked slots สำหรับ student Day By Modal ──
+  useEffect(() => {
+    if (!selectedDate || roomsOnFloor.length === 0) return;
+    setStudentDayBooked({});
+    let cancelled = false;
+    const fetchAll = async () => {
+      const results = {};
+      await Promise.all(roomsOnFloor.map(async (room) => {
+        try {
+          const res = await fetch(
+            `/api/bookings/schedule?room=${encodeURIComponent(room)}&date=${selectedDate}`
+          );
+          if (res.ok) {
+            const d = await res.json();
+            results[room] = d.booked_slots || [];
+          }
+        } catch { /* silent */ }
+      }));
+      if (!cancelled) setStudentDayBooked(results);
+    };
+    fetchAll();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, selectedFloor]); // selectedFloor แทน roomsOnFloor ป้องกัน infinite loop
+
+  // ==================== Past-slot check for Day By Modal ====================
+  // ใช้ local ISO string "YYYY-MM-DDThh:mm:00" เพื่อ parse ถูก timezone (ไม่ใช่ UTC)
+  const isSlotPast = (dateStr, timeStr) => {
+    const slotDate = new Date(`${dateStr}T${timeStr}:00`);
+    return slotDate <= new Date();
+  };
+
+  const shiftWeek = (deltaWeeks) => {
+    setWeekStart(prev => addDays(prev, deltaWeeks * 7));
+    setSelectedSlots([]);
+    setRangeStartSlot(null);
+    setCurrentDay(null);
+  };
+
+  const formatWeekLabel = (start) => {
+    const end = addDays(start, 6);
+    const startStr = start.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+    const endStr = end.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+    return `${startStr} - ${endStr}`;
+  };
+
   // Handle room-by-room booking confirmation
   const confirmRoomSelection = () => {
     if (selectedSlots.length === 0) {
@@ -570,50 +1176,32 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
       return;
     }
 
-    // Check if only one day is selected
-    const uniqueDays = [...new Set(selectedSlots.map(s => s.dayOffset))];
-    if (uniqueDays.length > 1) {
+    // Check if only one date is selected
+    const uniqueDates = [...new Set(selectedSlots.map(s => s.date))];
+    if (uniqueDates.length > 1) {
       alert('กรุณาเลือกเพียงวันเดียว');
       return;
     }
 
-    const selections = selectedSlots.map(s => ({
-      dayOffset: days.indexOf(s.day),
-      time: s.time
-    }));
+    const dateStr = uniqueDates[0];
 
-    const rangesByDay = computeRangesByDay(selections);
-
-    // Get the first (and only) day offset
-    const dayOffset = uniqueDays[0];
-    const ranges = rangesByDay[dayOffset];
-
-    // Calculate the actual date from day of week
-    // dayOffset: 0=จันทร์, 1=อังคาร, 2=พุธ, 3=พฤหัส, 4=ศุกร์, 5=เสาร์, 6=อาทิตย์
-    const today = new Date();
-    const currentDayOfWeek = today.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
-
-    // Convert Thai day index to JavaScript day index
-    // Thai: 0=จันทร์, 1=อังคาร, 2=พุธ, 3=พฤหัส, 4=ศุกร์, 5=เสาร์, 6=อาทิตย์
-    // JS:   1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday, 0=Sunday
-    const targetDayJS = dayOffset === 6 ? 0 : dayOffset + 1;
-
-    // Calculate days until target day
-    let daysUntilTarget = targetDayJS - currentDayOfWeek;
-    if (daysUntilTarget <= 0) {
-      // If the day has passed or is today, go to next week
-      daysUntilTarget += 7;
+    // Validate no past slots selected
+    const hasPast = selectedSlots.some(s => isSlotPast(s.date, s.time));
+    if (hasPast) {
+      alert('ไม่สามารถจองเวลาที่ผ่านมาแล้วได้ กรุณาเลือกเวลาใหม่');
+      setSelectedSlots([]);
+      setRangeStartSlot(null);
+      return;
     }
 
-    const baseDate = new Date(today);
-    baseDate.setDate(today.getDate() + daysUntilTarget);
-    const dateStr = baseDate.toISOString().slice(0, 10);
+    const rangesByDay = computeRangesByDay(selectedSlots);
+    const ranges = rangesByDay[dateStr] || [];
 
     setRoomSelections({
       room: selectedRoom,
       date: dateStr,
-      start_time: ranges[0].start,
-      end_time: ranges[0].end
+      start_time: ranges[0]?.start || '',
+      end_time: ranges[0]?.end || ''
     });
     setShowRoomByModal(false);
     setShowRequestDialog(true);
@@ -623,6 +1211,25 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
   const confirmDaySelection = () => {
     if (selectedSlots.length === 0) {
       alert('กรุณาเลือกห้องและช่วงเวลา');
+      return;
+    }
+
+    // Validate selected date is not in the past
+    const today0 = new Date();
+    today0.setHours(0, 0, 0, 0);
+    const chosenDate = new Date(selectedDate);
+    chosenDate.setHours(0, 0, 0, 0);
+    if (chosenDate < today0) {
+      alert('ไม่สามารถจองวันที่ผ่านมาแล้วได้');
+      return;
+    }
+
+    // Validate no past time slots
+    const hasPast = selectedSlots.some(s => isSlotPast(selectedDate, s.time));
+    if (hasPast) {
+      alert('ไม่สามารถจองเวลาที่ผ่านมาแล้วได้ กรุณาเลือกเวลาใหม่');
+      setSelectedSlots([]);
+      setRangeStartSlot(null);
       return;
     }
 
@@ -648,52 +1255,64 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
   const handleSubmitRequest = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
-    const detail = formData.get('detail') || '';
+    const detail = (formData.get('detail') || '').trim();
 
-    let bookingsToCreate = [];
-
-    if (roomSelections) {
-      // Room-by-room booking (single booking)
-      bookingsToCreate.push({
-        room: formData.get('room'),
-        date: formData.get('date'),
-        start_time: formData.get('start_time'),
-        end_time: formData.get('end_time'),
-        detail: detail
-      });
-    } else if (daySelections) {
-      // Day-by-day booking (single booking)
-      bookingsToCreate.push({
-        room: formData.get('room'),
-        date: formData.get('date'),
-        start_time: formData.get('start_time'),
-        end_time: formData.get('end_time'),
-        detail: detail
-      });
+    if (!detail) {
+      setDetailError(true);
+      return;
     }
+    setDetailError(false);
+    setBookingError('');
+
+    const bookingData = {
+      room: formData.get('room'),
+      date: formData.get('date'),
+      start_time: formData.get('start_time'),
+      end_time: formData.get('end_time'),
+      detail: detail
+    };
 
     try {
-      const response = await fetch('/api/bookings/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ bookings: bookingsToCreate })
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        alert('ส่งคำขอจองสำเร็จ!');
-        fetchRequests();
-        closeRequestDialog();
+      if (embeddedMode) {
+        // ══ Admin: สร้าง + approve ทันที ══
+        const res = await fetch('/api/bookings/admin-create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({ booking: bookingData })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setShowSuccessPopup(true);
+          fetchRequests();
+          closeRequestDialog();
+        } else {
+          setBookingError(data.message || 'เกิดข้อผิดพลาด');
+        }
       } else {
-        alert(data.message || 'เกิดข้อผิดพลาด');
+        // ══ Student: ส่งคำขอรอ approve ══
+        const res = await fetch('/api/bookings/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({ bookings: [bookingData] })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setShowSuccessPopup(true);
+          fetchRequests();
+          closeRequestDialog();
+        } else {
+          setBookingError(data.message || 'เกิดข้อผิดพลาด');
+        }
       }
     } catch (error) {
       console.error('Error creating booking:', error);
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+      setBookingError('เกิดข้อผิดพลาดในการเชื่อมต่อ');
     }
   };
 
@@ -705,6 +1324,8 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
     setRangeStartSlot(null);
     setCurrentDay(null);
     setCurrentRoom(null);
+    setDetailError(false);
+    setBookingError('');
   };
 
   const closeLogoutConfirm = () => {
@@ -817,31 +1438,61 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
         </header>
       )}
 
-      {/* Embedded header — แสดงเฉพาะตอน embed */}
-      {embeddedMode && (
-        <div style={{ marginBottom: 20 }}>
-          <div className="page-title-box" style={{ marginBottom: 16 }}>
-            <span className="page-title">Room Booking</span>
-          </div>
-          <button className="request-btn-main" onClick={() => {
-            if (!isRfidRegistered) {
-              setShowRfidPopup('warning');
-              return;
-            }
-            setSelectedSlots([]);
-            setRoomSelections(null);
-            setDaySelections(null);
-            setRangeStartSlot(null);
-            setCurrentDay(null);
-            setCurrentRoom(null);
-            setShowRequestDialog(true);
-          }}>
-            <i className="fas fa-plus"></i> ส่งคำขอใหม่
-          </button>
-        </div>
-      )}
-
-      {/* Stats Grid */}
+      {/* ══════════════════════════════════════════════════════
+          EMBEDDED MODE (Admin Dashboard) — Tab UI แทน Modal
+          ══════════════════════════════════════════════════════ */}
+      {embeddedMode ? (
+        <AdminBookingView
+          rooms={rooms}
+          selectedRoom={selectedRoom}
+          setSelectedRoom={setSelectedRoom}
+          selectedDate={selectedDate}
+          setSelectedDate={setSelectedDate}
+          selectedSlots={selectedSlots}
+          setSelectedSlots={setSelectedSlots}
+          rangeStartSlot={rangeStartSlot}
+          setRangeStartSlot={setRangeStartSlot}
+          currentDay={currentDay}
+          setCurrentDay={setCurrentDay}
+          currentRoom={currentRoom}
+          setCurrentRoom={setCurrentRoom}
+          weekStart={weekStart}
+          setWeekStart={setWeekStart}
+          weekDays={weekDays}
+          timeSlots={timeSlots}
+          today={today}
+          isSlotSelected={isSlotSelected}
+          isSlotPast={isSlotPast}
+          handleSlotClick={handleSlotClick}
+          confirmRoomSelection={confirmRoomSelection}
+          confirmDaySelection={confirmDaySelection}
+          floorKeys={floorKeys}
+          floorGroups={floorGroups}
+          selectedFloor={selectedFloor}
+          setSelectedFloor={setSelectedFloor}
+          roomsOnFloor={roomsOnFloor}
+          shiftWeek={shiftWeek}
+          formatWeekLabel={formatWeekLabel}
+          showRequestDialog={showRequestDialog}
+          setShowRequestDialog={setShowRequestDialog}
+          roomSelections={roomSelections}
+          setRoomSelections={setRoomSelections}
+          daySelections={daySelections}
+          setDaySelections={setDaySelections}
+          handleSubmitRequest={handleSubmitRequest}
+          closeRequestDialog={closeRequestDialog}
+          detailError={detailError}
+          setDetailError={setDetailError}
+          bookingError={bookingError}
+          setBookingError={setBookingError}
+          showSuccessPopup={showSuccessPopup}
+          setShowSuccessPopup={setShowSuccessPopup}
+          requests={requests}
+          stats={stats}
+          getStatusBadge={getStatusBadge}
+        />
+      ) : (
+      <>{/* ══ Non-embedded (student) layout ══ */}
       <div className="stats-grid">
         <div className="stat-card approved">
           <div className="stat-icon"><i className="fas fa-check-square"></i></div>
@@ -936,6 +1587,7 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
                   <button className="dialog-btn" onClick={() => {
                     setSelectedSlots([]);
                     setCurrentRoom(null);
+                    setSelectedFloor(floorKeys[0] ?? null);
                     setShowRequestDialog(false);
                     setShowDayByModal(true);
                   }}>
@@ -988,9 +1640,22 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
                     />
                   </label>
 
-                  <label>รายละเอียด
-                    <textarea name="detail" rows="3" placeholder="กรุณาระบุวัตถุประสงค์ในการใช้ห้อง..."></textarea>
+                  <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 14 }}>
+                    เหตุผล / วัตถุประสงค์ <span style={{ color: '#e74c3c' }}>*</span>
+                    <textarea
+                      name="detail"
+                      rows="3"
+                      placeholder="เหตุผลในการใช้ห้อง *"
+                      required
+                      style={{ borderColor: detailError ? '#e74c3c' : undefined }}
+                      onChange={() => setDetailError(false)}
+                    ></textarea>
                   </label>
+                  {detailError && (
+                    <p style={{ color: '#e74c3c', fontSize: 13, marginTop: -10, marginBottom: 10 }}>
+                      * จำเป็นต้องระบุเหตุผล
+                    </p>
+                  )}
 
                   <div className="modal-actions">
                     <button type="submit" className="request-btn">ส่งคำขอ</button>
@@ -998,6 +1663,11 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
                       ยกเลิก
                     </button>
                   </div>
+                  {bookingError && (
+                    <p style={{ color: '#e74c3c', fontSize: 13, marginTop: 10, textAlign: 'center' }}>
+                      <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 4 }}></i>{bookingError}
+                    </p>
+                  )}
                 </form>
               </>
             )}
@@ -1045,7 +1715,7 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
             <h2>เลือกจองตามห้องที่ต้องการ</h2>
 
             <div className="room-selector">
-              <label>ห้อง:
+              <label>Room:
                 <select
                   value={selectedRoom}
                   onChange={(e) => setSelectedRoom(e.target.value)}
@@ -1071,6 +1741,27 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
               <i className="fas fa-info-circle"></i> หมายเหตุ: กรุณาเลือกเพียงวันเดียว | คลิกช่วงเวลา 2 ครั้งเพื่อเลือกช่องเวลาตั้งแต่เริ่มต้นถึงสิ้นสุด
             </p>
 
+            {/* Week label กลาง + ลูกศรซ้าย-ขวาคร่อมตาราง */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <button
+                type="button"
+                onClick={() => shiftWeek(-1)}
+                style={{ background: '#d88b8b', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', color: 'white', fontSize: 16 }}
+              >
+                <i className="fa-solid fa-chevron-left"></i>
+              </button>
+              <div style={{ fontWeight: 600, fontSize: 15, color: '#333', textAlign: 'center' }}>
+                สัปดาห์: {formatWeekLabel(weekStart)}
+              </div>
+              <button
+                type="button"
+                onClick={() => shiftWeek(1)}
+                style={{ background: '#d88b8b', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', color: 'white', fontSize: 16 }}
+              >
+                <i className="fa-solid fa-chevron-right"></i>
+              </button>
+            </div>
+
             <div className="grid-wrapper">
               <table className="booking-grid">
                 <thead>
@@ -1082,22 +1773,37 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {days.map((day, dayIdx) => (
-                    <tr key={day}>
-                      <td>{day}</td>
-                      {timeSlots.map(time => {
-                        const isSelected = isSlotSelected(day, time);
-                        return (
-                          <td
-                            key={time}
-                            className={`slot ${isSelected ? 'selected' : ''}`}
-                            onClick={() => handleSlotClick({ day, time, dayOffset: dayIdx })}
-                          >
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
+                  {weekDays.map((dayObj, dayIdx) => {
+                    const isPast = dayObj.date < today;
+                    return (
+                      <tr key={dayObj.dateStr}>
+                        <td className="day-label">
+                          <span className="day-name">{dayObj.name}</span>
+                          <span className="day-date">{dayObj.date.getDate()}</span>
+                        </td>
+                        {timeSlots.map(time => {
+                          const isSelected = isSlotSelected(dayObj.dateStr, time);
+                          const isPastSlot = isPast || isSlotPast(dayObj.dateStr, time);
+                          const t = timeToMinutes(time);
+                          const isBooked = !isPastSlot && (studentRoomBooked[dayObj.dateStr] || []).some(
+                            s => t >= timeToMinutes(s.start_time) && t < timeToMinutes(s.end_time)
+                          );
+                          const blocked = isPastSlot || isBooked;
+                          const cellClasses = `slot ${isSelected ? 'selected' : ''} ${blocked ? 'disabled' : ''}`;
+                          return (
+                            <td
+                              key={time}
+                              className={cellClasses}
+                              title={isBooked ? 'มีการจองแล้ว' : undefined}
+                              style={isBooked ? { background: '#fde8e8', cursor: 'not-allowed' } : undefined}
+                              onClick={() => !blocked && handleSlotClick({ date: dayObj.dateStr, time, dayOffset: dayIdx })}
+                            >
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1110,6 +1816,48 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
         </div>
       )}
 
+      {/* ══ Success Popup ══ */}
+      {showSuccessPopup && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)' }}
+               onClick={() => setShowSuccessPopup(false)} />
+          <div style={{
+            position: 'relative', background: '#fff', borderRadius: 20,
+            padding: '40px 36px', maxWidth: 380, width: '90%', textAlign: 'center',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.25)'
+          }}>
+            {/* ไอคอนวงกลมสีเขียว */}
+            <div style={{
+              width: 72, height: 72, borderRadius: '50%',
+              background: '#e8f5e9', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', margin: '0 auto 18px'
+            }}>
+              <i className="fa-solid fa-check" style={{ fontSize: 32, color: '#4caf50' }}></i>
+            </div>
+            <h3 style={{ color: '#333', fontSize: 20, fontWeight: 700, marginBottom: 10 }}>
+              ส่งคำขอจองสำเร็จ!
+            </h3>
+            <p style={{ color: '#666', fontSize: 14, marginBottom: 28, lineHeight: 1.6 }}>
+              คำขอของคุณถูกส่งเรียบร้อยแล้ว<br />
+              รอการอนุมัติจาก Admin
+            </p>
+            <button
+              onClick={() => setShowSuccessPopup(false)}
+              style={{
+                background: '#d88b8b', color: '#fff', border: 'none',
+                borderRadius: 10, padding: '12px 48px', fontSize: 15,
+                fontWeight: 600, cursor: 'pointer', width: '100%'
+              }}
+            >
+              ตกลง
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Day By Modal */}
       {showDayByModal && (
         <div className="modal open">
@@ -1117,28 +1865,94 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
           <div className="modal-content large">
             <h2>เลือกจองตามวัน/เวลาที่ต้องการ</h2>
 
+            {/* Date picker */}
             <div className="day-controls">
               <label>วันที่:
                 <input
                   type="date"
                   value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
+                  min={(() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; })()}
+                  onChange={(e) => {
+                    setSelectedDate(e.target.value);
+                    setSelectedSlots([]);
+                    setRangeStartSlot(null);
+                    setCurrentRoom(null);
+                  }}
                 />
               </label>
             </div>
 
+            {/* Floor navigation */}
+            {floorKeys.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const idx = floorKeys.indexOf(selectedFloor);
+                    if (idx > 0) {
+                      setSelectedFloor(floorKeys[idx - 1]);
+                      setSelectedSlots([]);
+                      setRangeStartSlot(null);
+                      setCurrentRoom(null);
+                    }
+                  }}
+                  disabled={floorKeys.indexOf(selectedFloor) === 0}
+                  style={{
+                    background: '#d88b8b', border: 'none', borderRadius: 8,
+                    padding: '8px 16px', cursor: floorKeys.indexOf(selectedFloor) === 0 ? 'not-allowed' : 'pointer',
+                    color: 'white', fontSize: 16,
+                    opacity: floorKeys.indexOf(selectedFloor) === 0 ? 0.4 : 1
+                  }}
+                >
+                  <i className="fa-solid fa-chevron-left"></i>
+                </button>
+
+                <div style={{
+                  flex: 1, textAlign: 'center', fontWeight: 700, fontSize: 15,
+                  color: '#333', background: '#fff5f5', borderRadius: 8,
+                  padding: '9px 12px', border: '1px solid #fdd'
+                }}>
+                  {selectedFloor === 'อื่นๆ'
+                    ? 'อื่นๆ'
+                    : (() => {
+                        const list = floorGroups[selectedFloor] || [];
+                        if (list.length === 0) return `ชั้นที่ ${selectedFloor}`;
+                        if (list.length === 1) return `ชั้นที่ ${selectedFloor}  (${list[0]})`;
+                        return `ชั้นที่ ${selectedFloor}  (${list[0]} - ${list[list.length - 1]})`;
+                      })()
+                  }
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const idx = floorKeys.indexOf(selectedFloor);
+                    if (idx < floorKeys.length - 1) {
+                      setSelectedFloor(floorKeys[idx + 1]);
+                      setSelectedSlots([]);
+                      setRangeStartSlot(null);
+                      setCurrentRoom(null);
+                    }
+                  }}
+                  disabled={floorKeys.indexOf(selectedFloor) === floorKeys.length - 1}
+                  style={{
+                    background: '#d88b8b', border: 'none', borderRadius: 8,
+                    padding: '8px 16px', cursor: floorKeys.indexOf(selectedFloor) === floorKeys.length - 1 ? 'not-allowed' : 'pointer',
+                    color: 'white', fontSize: 16,
+                    opacity: floorKeys.indexOf(selectedFloor) === floorKeys.length - 1 ? 0.4 : 1
+                  }}
+                >
+                  <i className="fa-solid fa-chevron-right"></i>
+                </button>
+              </div>
+            )}
+
             <p style={{
-              marginTop: '10px',
-              marginBottom: '15px',
-              color: '#d88b8b',
-              fontSize: '14px',
-              fontWeight: '600',
-              background: '#fff5f5',
-              padding: '10px',
-              borderRadius: '6px',
-              border: '1px solid #fdd'
+              marginTop: '6px', marginBottom: '15px', color: '#d88b8b',
+              fontSize: '14px', fontWeight: '600', background: '#fff5f5',
+              padding: '10px', borderRadius: '6px', border: '1px solid #fdd'
             }}>
-              <i className="fas fa-info-circle"></i> หมายเหตุ: กรุณาเลือกเพียงห้องเดียว | คลิกช่วงเวลา 2 ครั้งเพื่อเลือกช่องเวลาตั้งแต่เริ่มต้นถึงสิ้นสุด
+              <i className="fas fa-info-circle"></i> หมายเหตุ: กรุณาเลือกเพียงห้องเดียว | คลิก 2 ครั้งเพื่อเลือกช่วงเวลาตั้งแต่เริ่มต้นถึงสิ้นสุด
             </p>
 
             <div className="grid-wrapper">
@@ -1152,18 +1966,25 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {rooms.map(room => (
+                  {roomsOnFloor.map(room => (
                     <tr key={room}>
                       <td>{room}</td>
-                      {timeSlots.map(time => {
+                    {timeSlots.map(time => {
                         const isSelected = isSlotSelected(null, time, room);
+                        const isPastSlot = isSlotPast(selectedDate, time);
+                        const t = timeToMinutes(time);
+                        const isBooked = !isPastSlot && (studentDayBooked[room] || []).some(
+                          s => t >= timeToMinutes(s.start_time) && t < timeToMinutes(s.end_time)
+                        );
+                        const blocked = isPastSlot || isBooked;
                         return (
                           <td
                             key={time}
-                            className={`slot ${isSelected ? 'selected' : ''}`}
-                            onClick={() => handleSlotClick({ room, time })}
-                          >
-                          </td>
+                            className={`slot${isSelected ? ' selected' : ''}${blocked ? ' disabled' : ''}`}
+                            title={isBooked ? 'มีการจองแล้ว' : undefined}
+                            style={isBooked ? { background: '#fde8e8', cursor: 'not-allowed' } : undefined}
+                            onClick={() => !blocked && handleSlotClick({ room, time })}
+                          />
                         );
                       })}
                     </tr>
@@ -1179,6 +2000,8 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
           </div>
         </div>
       )}
+    </> /* end non-embedded */
+    )} {/* end embeddedMode ternary */}
     </div>
   );
 };

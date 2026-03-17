@@ -504,3 +504,67 @@ def get_schedule():
 
     except sqlite3.Error as e:
         return jsonify({"error": str(e)}), 500
+
+
+@booking_bp.route("/api/bookings/admin-create", methods=["POST"])
+@token_required
+def admin_create_booking(current_user):
+    """Admin สร้างและอนุมัติการจองทันที (ไม่ต้องรอ approve)"""
+    if not current_user["email"].endswith("@kku.ac.th"):
+        return jsonify({"success": False, "message": "เฉพาะ Admin เท่านั้น"}), 403
+
+    data = request.get_json()
+    booking = data.get("booking", {})
+
+    room = booking.get("room", "").strip()
+    date = booking.get("date", "").strip()
+    start_time = booking.get("start_time", "").strip()
+    end_time = booking.get("end_time", "").strip()
+    detail = booking.get("detail", "").strip()
+
+    if not all([room, date, start_time, end_time]):
+        return jsonify({"success": False, "message": "ข้อมูลการจองไม่ครบถ้วน"}), 400
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+
+            # ตรวจ overlap กับการจองที่ approved แล้ว
+            if has_overlap(cursor, room, date, start_time, end_time):
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "message": f"ห้อง {room} วันที่ {date} ช่วงเวลา {start_time}–{end_time} มีการจองที่อนุมัติแล้ว",
+                        }
+                    ),
+                    409,
+                )
+
+            # Insert และ approve ทันที
+            cursor.execute(
+                """
+                INSERT INTO bookings (user_id, user_email, room, date, start_time, end_time,
+                                      detail, status, approved_by, remark, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?, 'จองโดย Admin', CURRENT_TIMESTAMP)
+                """,
+                (
+                    current_user["user_id"],
+                    current_user["email"],
+                    room,
+                    date,
+                    start_time,
+                    end_time,
+                    detail,
+                    current_user["email"],
+                ),
+            )
+            booking_id = cursor.lastrowid
+            conn.commit()
+
+        return jsonify(
+            {"success": True, "message": "จองห้องสำเร็จ", "booking_id": booking_id}
+        )
+
+    except sqlite3.Error as e:
+        return jsonify({"success": False, "message": str(e)}), 500

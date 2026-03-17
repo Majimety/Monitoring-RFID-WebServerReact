@@ -490,6 +490,59 @@ tr:hover {
   background: #f7f7f7;
 }
 
+.week-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 12px;
+}
+
+.week-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: #333;
+}
+
+.week-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.week-nav-btn {
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.2s;
+}
+
+.week-nav-btn:hover {
+  background: #f3eaea;
+  transform: translateY(-1px);
+}
+
+.week-nav-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.day-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.day-label .day-name {
+  text-align: left;
+}
+
+.day-label .day-date {
+  text-align: right;
+  font-weight: 600;
+}
+
 .slot {
   cursor: pointer;
   background: #fff;
@@ -500,6 +553,17 @@ tr:hover {
 .slot:hover {
   background: #f4f8ff;
   transform: scale(1.05);
+}
+
+.slot.disabled {
+  background: #fafafa;
+  cursor: not-allowed;
+  color: #999;
+}
+
+.slot.disabled:hover {
+  transform: none;
+  background: #fafafa;
 }
 
 .slot.selected {

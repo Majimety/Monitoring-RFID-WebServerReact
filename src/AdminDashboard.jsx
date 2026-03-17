@@ -6,6 +6,7 @@ import RoomBooking from './RoomBooking';
 
 // ==================== Sidebar Component ====================
 const Sidebar = ({ currentPage, onPageChange, onLogout, user, sidebarOpen, onAvatarClick }) => {
+  const [logoutConfirm, setLogoutConfirm] = React.useState(false);
   const menuItems = [
     { id: 'dashboard', icon: 'fa-house', title: 'Dashboard' },
     { id: 'users', icon: 'fa-id-card', title: 'RFID Users' },
@@ -50,9 +51,7 @@ const Sidebar = ({ currentPage, onPageChange, onLogout, user, sidebarOpen, onAva
           title="Logout"
           onClick={(e) => {
             e.preventDefault();
-            if (window.confirm('Are you sure you want to logout?')) {
-              onLogout();
-            }
+            setLogoutConfirm(true);
           }}
         >
           <i className="fa-solid fa-right-from-bracket"></i>
@@ -72,6 +71,17 @@ const Sidebar = ({ currentPage, onPageChange, onLogout, user, sidebarOpen, onAva
           </div>
           <div className="user-name">{user.first_name}</div>
         </div>
+      )}
+      {logoutConfirm && (
+        <ConfirmModal
+          isOpen={logoutConfirm}
+          title="ออกจากระบบ"
+          message="คุณต้องการออกจากระบบใช่ไหม?"
+          confirmLabel="ออกจากระบบ"
+          confirmColor="#e74c3c"
+          onConfirm={() => { setLogoutConfirm(false); onLogout(); }}
+          onCancel={() => setLogoutConfirm(false)}
+        />
       )}
     </aside>
   );
@@ -664,7 +674,7 @@ const RemarkModal = ({ isOpen, mode, onConfirm, onCancel }) => {
   );
 };
 
-// ==================== Confirm Modal Component (สำหรับ Cancel Register Request) ====================
+// ==================== Confirm Modal Component ====================
 const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confirmLabel = 'ยืนยัน', confirmColor = '#e74c3c' }) => {
   const [loading, setLoading] = React.useState(false);
 
@@ -688,11 +698,14 @@ const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confirmLabe
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)' }} onClick={onCancel} />
       <div style={{
         position: 'relative', background: '#fff', borderRadius: '12px',
-        padding: '28px', width: '380px', maxWidth: '90vw',
-        boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
+        padding: '28px', width: '360px', maxWidth: '90vw',
+        boxShadow: '0 10px 40px rgba(0,0,0,0.2)', textAlign: 'center'
       }}>
-        <h3 style={{ margin: '0 0 10px', color: '#333', fontSize: '18px' }}>{title}</h3>
-        <p style={{ margin: '0 0 20px', color: '#666', fontSize: '14px', lineHeight: 1.6 }}>{message}</p>
+        <i className="fa-solid fa-triangle-exclamation"
+          style={{ fontSize: '36px', color: '#f39c12', marginBottom: '12px', display: 'block' }}
+        ></i>
+        <h3 style={{ margin: '0 0 8px', color: '#333', fontSize: '18px' }}>{title}</h3>
+        <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px', lineHeight: 1.6 }}>{message}</p>
         <div style={{ display: 'flex', gap: '10px' }}>
           <button
             onClick={handleConfirm}
@@ -907,7 +920,7 @@ const DashboardContent = ({ onPrefillUser }) => {
       />
       <ConfirmModal
         isOpen={confirmModal.open}
-        title="⚠️ ยืนยันการยกเลิกคำขอ"
+        title="ยืนยันการยกเลิกคำขอ"
         message="ต้องการยกเลิกคำขอลงทะเบียน RFID นี้ใช่ไหม? คำขอจะถูกยกเลิกและผู้ใช้จะต้องส่งคำขอใหม่"
         confirmLabel="ยืนยันยกเลิก"
         confirmColor="#e74c3c"
@@ -1078,6 +1091,9 @@ const UsersTable = ({ onRefresh, onEditUser, onPrefillUser }) => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('registered');
   const [confirmModal, setConfirmModal] = useState({ open: false, userId: null, userName: '' });
+  const [deleteRfidModal, setDeleteRfidModal] = useState({ open: false, id: null, uuid: '' });
+  const [usersToast, setUsersToast] = useState({ message: '', type: '' });
+  const showUsersToast = (message, type = 'success') => setUsersToast({ message, type });
 
   const loadUsers = async () => {
     try {
@@ -1110,24 +1126,24 @@ const UsersTable = ({ onRefresh, onEditUser, onPrefillUser }) => {
     loadUsers();
   }, [onRefresh]);
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this user?')) {
-      return;
-    }
+  const handleDelete = (id) => {
+    const u = users.find(x => x.id === id);
+    setDeleteRfidModal({ open: true, id, uuid: u?.uuid || '' });
+  };
 
+  const handleConfirmDeleteRfid = async () => {
+    const id = deleteRfidModal.id;
+    setDeleteRfidModal({ open: false, id: null, uuid: '' });
     try {
-      const response = await fetch(`/api/delete_user/${id}`, {
-        method: 'DELETE'
-      });
+      const response = await fetch(`/api/delete_user/${id}`, { method: 'DELETE' });
       const data = await response.json();
-
       if (data.success) {
         loadUsers();
       } else {
-        alert(data.message);
+        showUsersToast(data.message || 'ลบไม่สำเร็จ', 'error');
       }
     } catch (error) {
-      alert('Error deleting user');
+      showUsersToast('Error deleting user', 'error');
     }
   };
 
@@ -1135,17 +1151,13 @@ const UsersTable = ({ onRefresh, onEditUser, onPrefillUser }) => {
     try {
       const response = await fetch(`/api/user/${userId}`);
       const user = await response.json();
-
       if (user.error) {
-        alert('Failed to load user data');
+        showUsersToast('Failed to load user data', 'error');
         return;
       }
-
-      if (onEditUser) {
-        onEditUser(user);
-      }
+      if (onEditUser) onEditUser(user);
     } catch (error) {
-      alert('Error loading user data');
+      showUsersToast('Error loading user data', 'error');
     }
   };
 
@@ -1167,10 +1179,10 @@ const UsersTable = ({ onRefresh, onEditUser, onPrefillUser }) => {
       if (data.success) {
         loadUsers();
       } else {
-        alert(data.error || 'ลบไม่สำเร็จ');
+        showUsersToast(data.error || 'ลบไม่สำเร็จ', 'error');
       }
     } catch {
-      alert('เกิดข้อผิดพลาด');
+      showUsersToast('เกิดข้อผิดพลาด', 'error');
     }
   };
 
@@ -1195,9 +1207,19 @@ const UsersTable = ({ onRefresh, onEditUser, onPrefillUser }) => {
 
   return (
     <>
+      <Toast message={usersToast.message} type={usersToast.type} onClose={() => setUsersToast({ message: '', type: '' })} />
+      <ConfirmModal
+        isOpen={deleteRfidModal.open}
+        title="ลบ UUID ของผู้ใช้ออกจากระบบ"
+        message={`คุณต้องการลบ UUID${deleteRfidModal.uuid ? ` "${deleteRfidModal.uuid}"` : ''} นี้หรือไม่? สามารถลงทะเบียนใหม่ได้`}
+        confirmLabel="ลบ"
+        confirmColor="#e74c3c"
+        onConfirm={handleConfirmDeleteRfid}
+        onCancel={() => setDeleteRfidModal({ open: false, id: null, uuid: '' })}
+      />
       <ConfirmModal
         isOpen={confirmModal.open}
-        title="⚠️ ลบผู้ใช้ออกจากระบบ"
+        title="ลบผู้ใช้ออกจากระบบ"
         message={`ต้องการลบ "${confirmModal.userName}" ออกจากระบบใช่ไหม?`}
         confirmLabel="ลบเลย"
         onConfirm={handleConfirmDeleteAdmin}
@@ -1430,6 +1452,7 @@ const SystemSettings = ({ onSelectRoom, selectedRoom, refreshKey }) => {
   const [loading, setLoading] = useState(true);
   const [roomSearch, setRoomSearch] = useState('');
   const [filterFloor, setFilterFloor] = useState('all');
+  const [deleteRoomModal, setDeleteRoomModal] = useState({ open: false, roomId: null, roomName: '' });
 
   // Load rooms from API
   const fetchRooms = async () => {
@@ -1500,15 +1523,22 @@ const SystemSettings = ({ onSelectRoom, selectedRoom, refreshKey }) => {
           onSelectRoom({ ...selectedRoom, name: trimmed });
         }
       } else {
-        alert(data.error || 'แก้ไขชื่อห้องไม่สำเร็จ');
+        // เก็บ error ไว้ใน console เท่านั้น (ไม่มี Toast ใน SystemSettings)
+        console.error(data.error || 'แก้ไขชื่อห้องไม่สำเร็จ');
       }
     } catch {
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+      console.error('เกิดข้อผิดพลาดในการเชื่อมต่อ');
     }
   };
 
-  const handleDeleteRoom = async (roomId) => {
-    if (!window.confirm('ต้องการลบห้องนี้?')) return;
+  const handleDeleteRoom = (roomId) => {
+    const room = rooms.find(r => r.id === roomId);
+    setDeleteRoomModal({ open: true, roomId, roomName: room?.name || '' });
+  };
+
+  const handleConfirmDeleteRoom = async () => {
+    const roomId = deleteRoomModal.roomId;
+    setDeleteRoomModal({ open: false, roomId: null, roomName: '' });
     try {
       const res = await fetch(`/api/rooms/${roomId}`, { method: 'DELETE' });
       if (res.ok) {
@@ -1516,10 +1546,10 @@ const SystemSettings = ({ onSelectRoom, selectedRoom, refreshKey }) => {
         if (selectedRoom?.id === roomId) onSelectRoom({ __addMode: true });
       } else {
         const data = await res.json();
-        alert(data.error || 'ลบห้องไม่สำเร็จ');
+        console.error(data.error || 'ลบห้องไม่สำเร็จ');
       }
     } catch {
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+      console.error('เกิดข้อผิดพลาดในการเชื่อมต่อ');
     }
   };
 
@@ -1533,6 +1563,16 @@ const SystemSettings = ({ onSelectRoom, selectedRoom, refreshKey }) => {
   }
 
   return (
+    <>
+    <ConfirmModal
+      isOpen={deleteRoomModal.open}
+      title="ลบห้อง"
+      message={`ต้องการลบห้อง "${deleteRoomModal.roomName}" ใช่ไหม?`}
+      confirmLabel="ลบ"
+      confirmColor="#e74c3c"
+      onConfirm={handleConfirmDeleteRoom}
+      onCancel={() => setDeleteRoomModal({ open: false, roomId: null, roomName: '' })}
+    />
     <div>
       <div className="page-title-box">
         <div className="page-title">Device Status</div>
@@ -1622,6 +1662,7 @@ const SystemSettings = ({ onSelectRoom, selectedRoom, refreshKey }) => {
         })()}
       </div>
     </div>
+    </>
   );
 };
 
@@ -1864,6 +1905,9 @@ const AccessLogs = () => {
   const [rooms, setRooms]         = useState([]);
   const [loading, setLoading]     = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [purgeModal, setPurgeModal] = useState(false);
+  const [logsToast, setLogsToast] = useState({ message: '', type: '' });
+  const showLogsToast = (message, type = 'success') => setLogsToast({ message, type });
 
   // Filter & search state
   const [filterRoom,   setFilterRoom]   = useState('');
@@ -1949,6 +1993,34 @@ const AccessLogs = () => {
   const currentPage  = Math.floor(offset / LIMIT) + 1;
 
   return (
+    <>
+    <ConfirmModal
+      isOpen={purgeModal}
+      title="ลบ Log เก่า"
+      message="ต้องการลบ log ที่เก่ากว่า 30 วันทั้งหมดใช่ไหม?"
+      confirmLabel="ลบ"
+      confirmColor="#e74c3c"
+      onConfirm={async () => {
+        setPurgeModal(false);
+        try {
+          const res = await fetch('/api/access-logs/purge-old', {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token()}` }
+          });
+          const data = await res.json();
+          if (res.ok) {
+            showLogsToast(`ลบแล้ว ${data.deleted} รายการ`, 'success');
+            fetchLogs();
+          } else {
+            showLogsToast(data.error || 'เกิดข้อผิดพลาด', 'error');
+          }
+        } catch {
+          showLogsToast('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+        }
+      }}
+      onCancel={() => setPurgeModal(false)}
+    />
+    <Toast message={logsToast.message} type={logsToast.type} onClose={() => setLogsToast({ message: '', type: '' })} />
     <div>
       {/* Title */}
       <div className="page-title-box">
@@ -2064,24 +2136,7 @@ const AccessLogs = () => {
 
         {/* Purge old logs */}
         <button
-          onClick={async () => {
-            if (!window.confirm('ต้องการลบ log ที่เก่ากว่า 30 วันทั้งหมดใช่ไหม?')) return;
-            try {
-              const res = await fetch('/api/access-logs/purge-old', {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token()}` }
-              });
-              const data = await res.json();
-              if (res.ok) {
-                alert(`ลบแล้ว ${data.deleted} รายการ`);
-                fetchLogs();
-              } else {
-                alert(data.error || 'เกิดข้อผิดพลาด');
-              }
-            } catch {
-              alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
-            }
-          }}
+          onClick={() => setPurgeModal(true)}
           style={{ padding: '8px 12px', background: '#fdecea', border: '1px solid #e57373', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#c62828', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}
           title="ลบ log เก่ากว่า 30 วัน"
         >
@@ -2200,6 +2255,7 @@ const AccessLogs = () => {
         )}
       </div>
     </div>
+    </>
   );
 };
 
@@ -2418,6 +2474,7 @@ const RegisterRequestsPage = ({ onPrefillUser }) => {
   const [loading, setLoading] = React.useState(true);
   const [toast, setToast] = React.useState({ message: '', type: '' });
   const [confirmModal, setConfirmModal] = React.useState({ open: false, id: null });
+  const [deleteModal, setDeleteModal] = React.useState({ open: false, id: null });
 
   const showToast = (msg, type = 'success') => setToast({ message: msg, type });
 
@@ -2481,8 +2538,13 @@ const RegisterRequestsPage = ({ onPrefillUser }) => {
     fetchRequests();
   };
 
-  const handleDeleteDone = async (id) => {
-    if (!window.confirm('ต้องการลบรายการนี้ออกจากประวัติ?')) return;
+  const handleDeleteDone = (id) => {
+    setDeleteModal({ open: true, id });
+  };
+
+  const handleConfirmDeleteDone = async () => {
+    const id = deleteModal.id;
+    setDeleteModal({ open: false, id: null });
     try {
       await fetch(`/api/rfid-register-requests/${id}/delete`, {
         method: 'DELETE',
@@ -2502,8 +2564,17 @@ const RegisterRequestsPage = ({ onPrefillUser }) => {
     <div>
       <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: '', type: '' })} />
       <ConfirmModal
+        isOpen={deleteModal.open}
+        title="ลบรายการ"
+        message="ต้องการลบรายการนี้ออกจากประวัติใช่ไหม?"
+        confirmLabel="ลบ"
+        confirmColor="#e74c3c"
+        onConfirm={handleConfirmDeleteDone}
+        onCancel={() => setDeleteModal({ open: false, id: null })}
+      />
+      <ConfirmModal
         isOpen={confirmModal.open}
-        title="⚠️ ยืนยันการยกเลิกคำขอ"
+        title="ยืนยันการยกเลิกคำขอ"
         message="ต้องการยกเลิกคำขอลงทะเบียน RFID นี้ใช่ไหม? คำขอจะถูกยกเลิกและผู้ใช้จะต้องส่งคำขอใหม่"
         confirmLabel="ยืนยันยกเลิก"
         confirmColor="#e74c3c"
@@ -2619,6 +2690,8 @@ const AdminDashboard = ({ user, onLogout }) => {
   const [prefillData, setPrefillData] = useState(null);
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [settingsRefreshKey, setSettingsRefreshKey] = useState(0);
+  const [globalToast, setGlobalToast] = useState({ message: '', type: '' });
+  const showGlobalToast = (message, type = 'success') => setGlobalToast({ message, type });
 
   useEffect(() => {
     const SOCKET_URL = process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:5000';
@@ -2693,7 +2766,7 @@ const AdminDashboard = ({ user, onLogout }) => {
   const handleAddRoom = async (roomName) => {
     const trimmed = (roomName || '').trim();
     if (!trimmed) {
-      alert('กรุณากรอกชื่อห้อง');
+      showGlobalToast('กรุณากรอกชื่อห้อง', 'error');
       return;
     }
     try {
@@ -2704,17 +2777,17 @@ const AdminDashboard = ({ user, onLogout }) => {
       });
       const data = await res.json();
       if (res.ok) {
-        alert(`เพิ่มห้อง "${trimmed}" สำเร็จ`);
+        showGlobalToast(`เพิ่มห้อง "${trimmed}" สำเร็จ`, 'success');
         setSettingsRefreshKey(k => k + 1); // trigger SystemSettings to re-fetch
         // Force a new add mode state to reset the input
         setSelectedRoom(null);
         setTimeout(() => setSelectedRoom({ __addMode: true }), 50);
       } else {
-        alert(data.error || 'เพิ่มห้องไม่สำเร็จ');
+        showGlobalToast(data.error || 'เพิ่มห้องไม่สำเร็จ', 'error');
       }
     } catch (err) {
       console.error('Add room error:', err);
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+      showGlobalToast('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
     }
   };
 
@@ -2803,6 +2876,7 @@ const AdminDashboard = ({ user, onLogout }) => {
 
   return (
     <div className="layout">
+      <Toast message={globalToast.message} type={globalToast.type} onClose={() => setGlobalToast({ message: '', type: '' })} />
       {/* Overlay backdrop — mobile only, rendered via CSS */}
       <div
         className={`sidebar-overlay${sidebarOpen ? ' open' : ''}`}
