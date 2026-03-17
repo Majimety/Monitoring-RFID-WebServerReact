@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './RoomBooking.css';
 
 // ==================== Notification Bell ====================
@@ -31,7 +31,7 @@ const NotificationBell = ({ userEmail }) => {
       });
       const d = await res.json();
       if (d.success) setUnreadCount(d.unread_count);
-    } catch {}
+    } catch { }
   };
 
   const fetchNotifications = async () => {
@@ -45,7 +45,7 @@ const NotificationBell = ({ userEmail }) => {
         setNotifications(d.notifications);
         setUnreadCount(d.unread_count);
       }
-    } catch {}
+    } catch { }
     setLoading(false);
   };
 
@@ -294,6 +294,9 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
   const [stats, setStats] = useState({ approved: 0, rejected: 0, pending: 0, usedLimit: 0 });
   const [showRequestDialog, setShowRequestDialog] = useState(false);
   const [showRfidPopup, setShowRfidPopup] = useState(false); // false | 'register' | 'warning'
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef(null);
   const [isRfidRegistered, setIsRfidRegistered] = useState(true);
   const [showRoomByModal, setShowRoomByModal] = useState(false);
   const [showDayByModal, setShowDayByModal] = useState(false);
@@ -320,6 +323,17 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
   };
 
   const timeSlots = generateTimeSlots();
+
+  // Close profile dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target)) {
+        setProfileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -693,6 +707,10 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
     setCurrentRoom(null);
   };
 
+  const closeLogoutConfirm = () => {
+    setShowLogoutConfirm(false);
+  };
+
   const closeRoomByModal = () => {
     setShowRoomByModal(false);
     setSelectedSlots([]);
@@ -727,42 +745,76 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
       )}
       {/* Header — ซ่อนเมื่อ embed ใน AdminDashboard */}
       {!embeddedMode && (
-      <header className="booking-header">
-        <div className="header-content">
-          <div className="logo-section">
-            <img src="/logo/enkku_logo.png" alt="Logo" className="header-logo" />
-            <h1>Room Access Control</h1>
+        <header className="booking-header">
+          <div className="header-content">
+            <div className="logo-section">
+              <img src="/logo/enkku_logo.png" alt="Logo" className="header-logo" />
+              <h1>Room Access Control</h1>
+            </div>
+
+            <div className="user-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }} ref={profileMenuRef}>
+              <NotificationBell userEmail={user?.email} />
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <button
+                  className="user-info profile-button"
+                  onClick={() => setProfileMenuOpen(v => !v)}
+                >
+                  <i className="fa-solid fa-user"></i>
+                  <span className='profileIcon'>{user?.first_name} {user?.last_name}</span>
+                  <i className="fa-solid fa-caret-down" style={{ marginLeft: 6, fontSize: '0.8em' }}></i>
+                </button>
+                {profileMenuOpen && (
+                  <div style={{
+                    position: 'absolute',
+                    right: 0,
+                    top: 'calc(100% + 6px)',
+                    minWidth: 160,
+                    background: '#fff',
+                    borderRadius: 10,
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
+                    zIndex: 999,
+                    overflow: 'hidden'
+                  }}>
+                    <button
+                      className="dropdown-item"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        onNavigate && onNavigate('profile');
+                      }}
+                    >
+                      <i className="fa-solid fa-user" style={{ marginRight: 8 }}></i>Profile
+                    </button>
+                    <button
+                      className="dropdown-item logout-button"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        setShowLogoutConfirm(true);
+                      }}
+                    >
+                      <i className="fa-solid fa-right-from-bracket" style={{ marginRight: 8 }}></i>Logout
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
-          <div className="user-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <NotificationBell userEmail={user?.email} />
-            <button className="logout-btn" onClick={onLogout}>
-              <i className="fa-solid fa-right-from-bracket"></i>
-              <span className="logout-text">Logout</span>
-            </button>
-            <button className="user-info profile-button" onClick={() => onNavigate && onNavigate('profile')}>
-              <i className="fa-solid fa-user"></i>
-              <span className='profileIcon'>{user?.first_name} {user?.last_name}</span>
-            </button>
-          </div>
-        </div>
-
-        <button className="request-btn-main" onClick={() => {
-          if (!isRfidRegistered) {
-            setShowRfidPopup('warning');
-            return;
-          }
-          setSelectedSlots([]);
-          setRoomSelections(null);
-          setDaySelections(null);
-          setRangeStartSlot(null);
-          setCurrentDay(null);
-          setCurrentRoom(null);
-          setShowRequestDialog(true);
-        }}>
-          <i className="fas fa-plus"></i> ส่งคำขอใหม่
-        </button>
-      </header>
+          <button className="request-btn-main" onClick={() => {
+            if (!isRfidRegistered) {
+              setShowRfidPopup('warning');
+              return;
+            }
+            setSelectedSlots([]);
+            setRoomSelections(null);
+            setDaySelections(null);
+            setRangeStartSlot(null);
+            setCurrentDay(null);
+            setCurrentRoom(null);
+            setShowRequestDialog(true);
+          }}>
+            <i className="fas fa-plus"></i> ส่งคำขอใหม่
+          </button>
+        </header>
       )}
 
       {/* Embedded header — แสดงเฉพาะตอน embed */}
@@ -823,14 +875,14 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
           <div className="table-responsive"><table>
             <thead>
               <tr>
-                <th style={{width: '120px'}}>ประเภทห้อง</th>
-                <th style={{width: '110px'}}>วันที่จอง</th>
-                <th style={{width: '90px'}}>เวลาเริ่ม</th>
-                <th style={{width: '100px'}}>เวลาสิ้นสุด</th>
-                <th style={{width: '250px'}}>รายละเอียดการจอง</th>
-                <th style={{width: '100px'}}>สถานะ</th>
-                <th style={{width: '150px'}}>ผู้ตรวจสอบ</th>
-                <th style={{width: '150px'}}>หมายเหตุ</th>
+                <th style={{ width: '120px' }}>ประเภทห้อง</th>
+                <th style={{ width: '110px' }}>วันที่จอง</th>
+                <th style={{ width: '90px' }}>เวลาเริ่ม</th>
+                <th style={{ width: '100px' }}>เวลาสิ้นสุด</th>
+                <th style={{ width: '250px' }}>รายละเอียดการจอง</th>
+                <th style={{ width: '100px' }}>สถานะ</th>
+                <th style={{ width: '150px' }}>ผู้ตรวจสอบ</th>
+                <th style={{ width: '150px' }}>หมายเหตุ</th>
               </tr>
             </thead>
             <tbody>
@@ -879,7 +931,7 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
                     setShowRequestDialog(false);
                     setShowRoomByModal(true);
                   }}>
-                    เลือกจองตามห้องที่ต้องการ
+                    เลือกจองตามห้อง
                   </button>
                   <button className="dialog-btn" onClick={() => {
                     setSelectedSlots([]);
@@ -887,7 +939,7 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
                     setShowRequestDialog(false);
                     setShowDayByModal(true);
                   }}>
-                    เลือกจองตามวัน/เวลาที่ต้องการ
+                    เลือกจองตามวัน
                   </button>
                 </div>
               </>
@@ -949,6 +1001,38 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
                 </form>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Logout Confirm Dialog */}
+      {showLogoutConfirm && (
+        <div className="modal open">
+          <div className="modal-overlay" onClick={closeLogoutConfirm}></div>
+          <div className="modal-content">
+            <h2 className="dialog-head">ยืนยันการออกจากระบบ</h2>
+            <p style={{ color: '#555', fontSize: 14, marginTop: 10, marginBottom: 20, textAlign: 'center' }}>
+              คุณต้องการออกจากระบบใช่หรือไม่?
+            </p>
+            <div className="modal-actions">
+              <button
+                className="request-btn cancel"
+                onClick={closeLogoutConfirm}
+                type="button"
+              >
+                ยกเลิก
+              </button>
+              <button
+                className="request-btn logout-button"
+                onClick={() => {
+                  setShowLogoutConfirm(false);
+                  onLogout();
+                }}
+                type="button"
+              >
+                ออกจากระบบ
+              </button>
+            </div>
           </div>
         </div>
       )}

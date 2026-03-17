@@ -4,28 +4,28 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
-#define SS_PIN    5
-#define RST_PIN   21
+#define SS_PIN 5
+#define RST_PIN 21
 #define RELAY_PIN 26
-#define DOOR_OPEN  LOW
+#define DOOR_OPEN LOW
 #define DOOR_CLOSE HIGH
 
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
-const char *ssid         = "ADF";
-const char *password     = "ADF12345";
-const char *apiIPAddress = "http://10.53.39.157:5000"; // แก้ไขทุกครั้งที่เทส
-const char *roomName     = "EN4101";                   // ชื่อห้องของ ESP32 ตัวนี้
+const char *ssid = "ADF";
+const char *password = "ADF12345";
+const char *apiIPAddress = "http://10.126.45.16:5000"; // แก้ไขทุกครั้งที่เทส
+const char *roomName = "EN4401";                       // ชื่อห้องของ ESP32 ตัวนี้
 
 // =====================
 // Timing
 // =====================
-unsigned long lastPoll            = 0;
+unsigned long lastPoll = 0;
 unsigned long lastWhitelistRefresh = 0;
 
-const unsigned long pollInterval            = 1000;        // poll door command ทุก 1 วิ
+const unsigned long pollInterval = 1000;                            // poll door command ทุก 1 วิ
 const unsigned long whitelistRefreshInterval = 5UL * 60UL * 1000UL; // refresh whitelist ทุก 5 นาที
-const unsigned long whitelistRetryInterval   = 30UL * 1000UL;       // retry ถ้าโหลดไม่ได้ ทุก 30 วิ
+const unsigned long whitelistRetryInterval = 30UL * 1000UL;         // retry ถ้าโหลดไม่ได้ ทุก 30 วิ
 
 // =====================
 // Admin Whitelist (เก็บใน RAM — โหลดจาก server)
@@ -40,7 +40,7 @@ const unsigned long whitelistRetryInterval   = 30UL * 1000UL;       // retry ถ
 // =====================
 #define MAX_WHITELIST 50
 String adminWhitelist[MAX_WHITELIST];
-int    adminWhitelistCount = 0;
+int adminWhitelistCount = 0;
 
 // โหลด whitelist จาก server — คืน true ถ้าสำเร็จ
 bool loadWhitelistFromServer()
@@ -82,7 +82,8 @@ bool loadWhitelistFromServer()
   int newCount = 0;
   for (JsonObject admin : doc["admins"].as<JsonArray>())
   {
-    if (newCount >= MAX_WHITELIST) break;
+    if (newCount >= MAX_WHITELIST)
+      break;
     String uuid = admin["uuid"].as<String>();
     uuid.toUpperCase();
     adminWhitelist[newCount++] = uuid;
@@ -200,7 +201,8 @@ void handleOfflineFallback(const String &uuid)
 // =====================
 void checkDoorCommand()
 {
-  if (WiFi.status() != WL_CONNECTED) return;
+  if (WiFi.status() != WL_CONNECTED)
+    return;
 
   HTTPClient http;
   String url = String(apiIPAddress) + "/api/door/command?room=" + String(roomName);
@@ -211,16 +213,30 @@ void checkDoorCommand()
   if (code == 200)
   {
     String payload = http.getString();
-    if (payload.indexOf("\"command\": \"open\"") != -1)
+    Serial.print("[CMD] Poll: ");
+    Serial.println(payload);
+
+    // Flask 3.x returns {"command": "open"} with space — support both
+    bool isOpen = payload.indexOf("\"command\":\"open\"") != -1 ||
+                  payload.indexOf("\"command\": \"open\"") != -1;
+    bool isClose = payload.indexOf("\"command\":\"close\"") != -1 ||
+                   payload.indexOf("\"command\": \"close\"") != -1;
+
+    if (isOpen)
     {
       Serial.println("[CMD] Web command: OPEN");
       openDoor();
     }
-    else if (payload.indexOf("\"command\": \"close\"") != -1)
+    else if (isClose)
     {
       Serial.println("[CMD] Web command: CLOSE");
       digitalWrite(RELAY_PIN, DOOR_CLOSE);
     }
+  }
+  else
+  {
+    Serial.print("[CMD] Poll failed. Code: ");
+    Serial.println(code);
   }
   http.end();
 }
@@ -282,15 +298,17 @@ void loop()
   //   กรณี A: โหลดสำเร็จแล้ว → refresh ทุก 5 นาที (ดึง admin เพิ่มใหม่)
   //   กรณี B: ยังโหลดไม่ได้   → retry ทุก 30 วิ (server อาจยังไม่พร้อม)
   unsigned long refreshInterval = (adminWhitelistCount > 0)
-                                    ? whitelistRefreshInterval
-                                    : whitelistRetryInterval;
+                                      ? whitelistRefreshInterval
+                                      : whitelistRetryInterval;
 
   if (now - lastWhitelistRefresh >= refreshInterval)
   {
     Serial.println("[WHITELIST] Refreshing...");
     bool ok = loadWhitelistFromServer();
-    if (ok) Serial.println("[WHITELIST] Refresh OK");
-    else    Serial.println("[WHITELIST] Refresh failed — will retry");
+    if (ok)
+      Serial.println("[WHITELIST] Refresh OK");
+    else
+      Serial.println("[WHITELIST] Refresh failed — will retry");
     lastWhitelistRefresh = now;
   }
 
@@ -301,7 +319,8 @@ void loop()
   String uuid = "";
   for (byte i = 0; i < mfrc522.uid.size; i++)
   {
-    if (mfrc522.uid.uidByte[i] < 0x10) uuid += "0";
+    if (mfrc522.uid.uidByte[i] < 0x10)
+      uuid += "0";
     uuid += String(mfrc522.uid.uidByte[i], HEX);
   }
   uuid.toUpperCase();
