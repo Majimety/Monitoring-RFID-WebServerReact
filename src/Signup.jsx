@@ -26,6 +26,7 @@ const Signup = ({ onSwitchToLogin }) => {
     user_id: ''
   });
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const isKkuStaff = formData.email.endsWith('@kku.ac.th');
@@ -96,8 +97,10 @@ const Signup = ({ onSwitchToLogin }) => {
       const data = await response.json();
 
       if (response.ok) {
-        alert('ลงทะเบียนสำเร็จ! กรุณา Login');
-        if (onSwitchToLogin) onSwitchToLogin();
+        setSuccess(true);
+        setTimeout(() => {
+          if (onSwitchToLogin) onSwitchToLogin();
+        }, 2000);
       } else {
         setError(data.error || 'ลงทะเบียนไม่สำเร็จ');
       }
@@ -213,7 +216,26 @@ const Signup = ({ onSwitchToLogin }) => {
 
             {error && <div className="error-message">{error}</div>}
 
-            <button type="submit" className="auth-button" disabled={loading}>
+            {success && (
+              <div style={{
+                padding: '12px',
+                background: '#f0fdf4',
+                border: '1px solid #86efac',
+                borderRadius: '6px',
+                color: '#15803d',
+                fontSize: '14px',
+                textAlign: 'center',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
+              }}>
+                <i className="fa-solid fa-circle-check"></i>
+                ลงทะเบียนสำเร็จ! กำลังพาไปหน้า Login...
+              </div>
+            )}
+
+            <button type="submit" className="auth-button" disabled={loading || success}>
               {loading ? 'กำลังสมัคร...' : 'Sign Up'}
             </button>
           </form>

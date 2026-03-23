@@ -425,7 +425,7 @@ const AdminBookingView = ({
           {/* Room selector */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
-              ห้อง:
+              Room:
               <select
                 value={selectedRoom}
                 onChange={(e) => {
@@ -441,12 +441,8 @@ const AdminBookingView = ({
             </label>
           </div>
 
-          <p style={{ color: '#d88b8b', fontSize: 13, fontWeight: 600, background: '#fff5f5', padding: '8px 12px', borderRadius: 6, border: '1px solid #fdd', marginBottom: 12 }}>
-            <i className="fas fa-info-circle"></i> คลิก 2 ครั้งเพื่อเลือกช่วงเวลาตั้งแต่เริ่มต้นถึงสิ้นสุด | เลือกได้เพียงวันเดียว
-          </p>
-
           {/* Week nav */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, background: '#fff5f5', padding: '8px 12px', borderRadius: 6, border: '1px solid #fdd' }}>
             <button type="button" onClick={() => shiftWeek(-1)}
               style={{ background: '#d88b8b', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', color: 'white', fontSize: 15 }}>
               <i className="fa-solid fa-chevron-left"></i>
@@ -457,6 +453,10 @@ const AdminBookingView = ({
               <i className="fa-solid fa-chevron-right"></i>
             </button>
           </div>
+
+          <p style={{ color: '#d88b8b', fontSize: 13, fontWeight: 600, background: '#fff5f5', padding: '8px 12px', borderRadius: 6, border: '1px solid #fdd', marginBottom: 12 }}>
+            <i className="fas fa-info-circle"></i> คลิก 2 ครั้งเพื่อเลือกช่วงเวลาตั้งแต่เริ่มต้นถึงสิ้นสุด | เลือกได้เพียงวันเดียว
+          </p>
 
           {/* Grid */}
           <div className="grid-wrapper">
@@ -512,7 +512,7 @@ const AdminBookingView = ({
           {/* Date picker */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
-              วันที่:
+              Date:
               <input
                 type="date"
                 value={selectedDate}
@@ -1727,22 +1727,8 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
               </label>
             </div>
 
-            <p style={{
-              marginTop: '10px',
-              marginBottom: '15px',
-              color: '#d88b8b',
-              fontSize: '14px',
-              fontWeight: '600',
-              background: '#fff5f5',
-              padding: '10px',
-              borderRadius: '6px',
-              border: '1px solid #fdd'
-            }}>
-              <i className="fas fa-info-circle"></i> หมายเหตุ: กรุณาเลือกเพียงวันเดียว | คลิกช่วงเวลา 2 ครั้งเพื่อเลือกช่องเวลาตั้งแต่เริ่มต้นถึงสิ้นสุด
-            </p>
-
             {/* Week label กลาง + ลูกศรซ้าย-ขวาคร่อมตาราง */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, background: '#fff5f5', padding: '8px 12px', borderRadius: 6, border: '1px solid #fdd' }}>
               <button
                 type="button"
                 onClick={() => shiftWeek(-1)}
@@ -1761,6 +1747,20 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
                 <i className="fa-solid fa-chevron-right"></i>
               </button>
             </div>
+
+            <p style={{
+              marginTop: '10px',
+              marginBottom: '15px',
+              color: '#d88b8b',
+              fontSize: '14px',
+              fontWeight: '600',
+              background: '#fff5f5',
+              padding: '10px',
+              borderRadius: '6px',
+              border: '1px solid #fdd'
+            }}>
+              <i className="fas fa-info-circle"></i> หมายเหตุ: กรุณาเลือกเพียงวันเดียว | คลิกช่วงเวลา 2 ครั้งเพื่อเลือกช่องเวลาตั้งแต่เริ่มต้นถึงสิ้นสุด
+            </p>
 
             <div className="grid-wrapper">
               <table className="booking-grid">
@@ -1867,7 +1867,7 @@ const RoomBooking = ({ user, onLogout, onNavigate, embeddedMode = false }) => {
 
             {/* Date picker */}
             <div className="day-controls">
-              <label>วันที่:
+              <label>Date:
                 <input
                   type="date"
                   value={selectedDate}
