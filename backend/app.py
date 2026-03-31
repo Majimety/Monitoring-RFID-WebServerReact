@@ -697,7 +697,6 @@ def get_uuid():
     # source: "register" = มาจาก ESP32_Register (ไม่ต้อง notify), "door" = มาจาก ESP32_Door
     source = data.get("source", "door")
 
-    # Bug #5 Fix: ใช้ thread-safe setter
     set_latest_uuid(uuid)
 
     user = get_user_by_uuid(uuid)
@@ -1288,4 +1287,11 @@ if __name__ == "__main__":
     print(f" Environment: {os.getenv('FLASK_ENV', 'development')}")
     print(f" Debug mode: {debug}\n")
 
-    socketio.run(app, debug=debug, use_reloader=False, host=host, port=port)
+    socketio.run(
+        app,
+        debug=debug,
+        use_reloader=False,
+        host=host,
+        port=port,
+        allow_unsafe_werkzeug=True,
+    )
